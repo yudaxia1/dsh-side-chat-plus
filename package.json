@@ -1,0 +1,26 @@
+{
+  "name": "dsh-side-chat",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness Web 的侧边聊天插件：独立于主会话的讨论空间，支持从主消息/选中文字建立引用、独立流式收发、多侧聊管理与回传主聊天。",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node tests/core.test.mjs && node tests/integration.test.mjs && node tests/smoke.test.mjs",
+    "check": "node build.mjs && node tests/core.test.mjs && node tests/integration.test.mjs && node tests/smoke.test.mjs"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
