@@ -1,4 +1,6 @@
 const SIDE_ID_PREFIX = 'sidechat-'
+const SIDE_CHAT_PRESET = 'standard'
+const SIDE_CHAT_PRESETS = Object.freeze(['standard', 'code', 'minimal', 'cordis'])
 const MAX_QUERY_LENGTH = 400
 const DEFAULT_LIMIT = 24
 const MAX_LIMIT = 60
@@ -23,18 +25,20 @@ function makeSideSessionId(now = Date.now(), random = Math.random()) {
   return `${SIDE_ID_PREFIX}${now.toString(36)}-${entropy}`
 }
 
-function isSideSession(header, parentSessionId) {
+function isSideSession(header, parentSessionId, preset) {
   return header !== null
     && typeof header === 'object'
     && typeof header.id === 'string'
     && header.id.startsWith(SIDE_ID_PREFIX)
-    && header.origin === 'subagent'
+    && header.origin !== 'subagent'
+    && SIDE_CHAT_PRESETS.includes(header.agentPreset)
+    && (preset === undefined || header.agentPreset === preset)
     && header.parentSession === parentSessionId
 }
 
-function latestRetainedSession(headers, parentSessionId) {
+function latestRetainedSession(headers, parentSessionId, preset = SIDE_CHAT_PRESET) {
   return [...headers]
-    .filter(header => isSideSession(header, parentSessionId))
+    .filter(header => isSideSession(header, parentSessionId, preset))
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))[0]
 }
 
@@ -126,9 +130,11 @@ function formatContextSnapshot(parentSessionId, events, query) {
 
 function normalizeOpenRequest(input) {
   const source = input !== null && typeof input === 'object' ? input : {}
+  const preset = SIDE_CHAT_PRESETS.includes(source.preset) ? source.preset : SIDE_CHAT_PRESET
   return {
     parentSessionId: requireSessionId(source.parentSessionId, 'parentSessionId'),
     anchorText: typeof source.anchorText === 'string' ? source.anchorText.trim().slice(0, 8000) : '',
+    preset,
   }
 }
 
@@ -144,6 +150,8 @@ export {
   DEFAULT_LIMIT,
   MAX_LIMIT,
   SIDE_ID_PREFIX,
+  SIDE_CHAT_PRESET,
+  SIDE_CHAT_PRESETS,
   SideChatError,
   eventText,
   formatContextSnapshot,

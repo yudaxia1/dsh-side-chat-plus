@@ -5,6 +5,7 @@ import { apply } from '../dist/formal-host.mjs'
 function fixture({ coldParent = false } = {}) {
   const handlers = new Map()
   const registrations = { sections: [], tools: [] }
+  const archivedSessionIds = []
   const disposers = []
   const parent = {
     id: 'main-session',
@@ -19,7 +20,8 @@ function fixture({ coldParent = false } = {}) {
       locate: header => ({ kind: 'jsonl', path: `E:\\sessions\\${header.id}\\session.jsonl` }),
     },
     sessions: { flush: async () => {} },
-    agentPresets: { mount: async (_ctx, preset) => assert.equal(preset, 'cordis') },
+    agentPresets: { mount: async (_ctx, preset) => assert.equal(preset, 'standard') },
+    workspaceRegistry: { archiveSession: async sessionId => archivedSessionIds.push(sessionId) },
     agents: {
       get: id => !coldParent && id === parent.id ? parent : childHandle?.agent.id === id ? childHandle.agent : undefined,
       create: async options => {
@@ -62,18 +64,20 @@ function fixture({ coldParent = false } = {}) {
     if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
     return result.value
   }
-  return { call, child: () => childHandle, registrations, disposers }
+  return { call, child: () => childHandle, registrations, archivedSessionIds, disposers }
 }
 
-test('host creates a hidden real child without copying the parent transcript', async () => {
+test('host creates an archived root session without copying the parent transcript', async () => {
   const run = fixture()
   const opened = await run.call('sideChat.open', { parentSessionId: 'main-session', anchorText: 'selected' })
   const child = run.child()
   assert.equal(opened.sessionId, child.agent.id)
-  assert.equal(child.options.meta.origin, 'subagent')
+  assert.equal(child.options.meta.origin, undefined)
+  assert.equal(child.options.meta.delegationDepth, undefined)
   assert.equal(child.options.meta.parentSession, 'main-session')
-  assert.equal(child.options.meta.agentPreset, 'cordis')
+  assert.equal(child.options.meta.agentPreset, 'standard')
   assert.equal(child.options.seed, undefined)
+  assert.deepEqual(run.archivedSessionIds, [child.agent.id])
   assert.equal(run.registrations.sections[0].name, 'dsh-side-chat:relationship')
   assert.equal(run.registrations.tools[0].name, 'side_chat_context')
   const context = await run.registrations.tools[0].execute({ query: 'fact' })
@@ -86,7 +90,7 @@ test('host creates the side session from a durable cold parent without resuming 
   const child = run.child()
   assert.equal(opened.sessionId, child.agent.id)
   assert.equal(child.options.meta.cwd, 'E:\\work')
-  assert.equal(child.options.meta.agentPreset, 'cordis')
+  assert.equal(child.options.meta.agentPreset, 'standard')
 })
 
 test('keep closes the live child but preserves persistence', async () => {

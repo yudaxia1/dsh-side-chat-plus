@@ -5,7 +5,8 @@ const CSS = `
 .dsh-sc-root{display:flex;height:100%;min-width:0;overflow:hidden;background:var(--dsw-alias-bg-base)}
 .dsh-sc-column{position:relative;display:flex;flex-direction:column;min-width:0;height:100%;background:var(--dsw-alias-bg-base)}
 .dsh-sc-column-main{flex:1 1 0}
-.dsh-sc-column-side{flex:0 0 var(--dsh-sc-side-width,50%)}
+.dsh-sc-column-side{box-sizing:border-box;flex:0 0 var(--dsh-sc-side-width,50%)}
+.dsh-sc-column-side:not(:has([data-slot="conversation.composer.dock"]>*)){padding-bottom:24px}
 .dsh-sc-column>[data-phase]{flex:1;min-height:0}
 .dsh-sc-column-side [data-conversation-scroll]>[data-composer-seat]{margin-top:auto}
 .dsh-sc-resizer{position:relative;z-index:40;flex:0 0 7px;margin:0 -3px;cursor:col-resize;touch-action:none;outline:none}
@@ -15,27 +16,66 @@ const CSS = `
 .dsh-sc-action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-sc-action:disabled{opacity:.5;cursor:default}
 .dsh-sc-icon-action{width:30px;padding:0}
-.dsh-sc-side-actions{position:absolute;top:10px;right:12px;z-index:30;display:flex;gap:4px;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-elevated)}
 .dsh-sc-selection{position:fixed;z-index:1000;transform:translate(-50%,-100%);padding-bottom:8px}
 .dsh-sc-selection .dsh-sc-action{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-elevated);box-shadow:0 6px 22px rgba(0,0,0,.16);white-space:nowrap}
-.dsh-sc-modal-backdrop{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;background:rgba(0,0,0,.36)}
-.dsh-sc-modal{width:min(420px,calc(100vw - 32px));padding:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-elevated);box-shadow:0 18px 60px rgba(0,0,0,.24)}
+.dsh-sc-modal-backdrop{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.52)}
+.dsh-sc-modal{box-sizing:border-box;width:min(420px,100%);padding:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);box-shadow:0 20px 64px rgba(0,0,0,.32)}
 .dsh-sc-modal h3{margin:0 0 8px;color:var(--dsw-alias-label-primary);font-size:16px}.dsh-sc-modal p{margin:0;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:1.6}
-.dsh-sc-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.dsh-sc-danger{background:var(--dsw-alias-error-bg,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-error,var(--dsw-alias-label-primary))}
+.dsh-sc-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.dsh-sc-modal-actions .dsh-sc-action{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-elevated)}.dsh-sc-danger{border-color:var(--dsw-alias-error,var(--dsw-alias-border-l2))!important;color:var(--dsw-alias-error,var(--dsw-alias-label-primary))}
 .dsh-sc-error{position:absolute;right:14px;bottom:14px;z-index:20;max-width:360px;padding:9px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-elevated);color:var(--dsw-alias-label-secondary);font-size:12px}
+.dsh-sc-settings{width:min(760px,100%);padding:8px 0 40px;color:var(--dsw-alias-label-primary)}
+.dsh-sc-settings-head{padding:0 0 20px}.dsh-sc-settings-head h2{margin:0;font-size:20px;font-weight:600;letter-spacing:0}
+.dsh-sc-settings-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:24px;min-height:72px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.dsh-sc-settings-title{font-size:14px;font-weight:500}.dsh-sc-settings-desc{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+.dsh-sc-settings-select{min-width:148px;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.dsh-sc-switch{position:relative;width:36px;height:20px;flex:none}.dsh-sc-switch input{position:absolute;opacity:0;pointer-events:none}.dsh-sc-switch span{display:block;width:100%;height:100%;border-radius:10px;background:var(--dsw-alias-border-l2);transition:background .15s}.dsh-sc-switch span::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-elevated);box-shadow:0 1px 3px rgba(0,0,0,.22);transition:transform .15s}.dsh-sc-switch input:checked+span{background:var(--dsw-alias-state-business-primary)}.dsh-sc-switch input:checked+span::after{transform:translateX(16px)}.dsh-sc-switch input:focus-visible+span{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 @media(max-width:980px){.dsh-sc-root{overflow-x:auto}.dsh-sc-column{min-width:440px}.dsh-sc-column-side{flex-basis:var(--dsh-sc-side-width,50%)}}
 `
 
-const initialState = Object.freeze({ open: false, hidden: false, busy: false, dialog: false, sideRatio: 50, parentId: null, sideId: null, anchorText: '', error: '' })
+const PREFERENCE_KEY = 'dsh-side-chat.preferences.v1'
+const PRESET_OPTIONS = Object.freeze([
+  { id: 'standard', label: '标准模式' },
+  { id: 'code', label: 'PTC 模式' },
+  { id: 'minimal', label: '极简模式' },
+  { id: 'cordis', label: '创造模式' },
+])
+
+function storedPreferences() {
+  const fallback = { enabled: true, preset: 'standard' }
+  try {
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(PREFERENCE_KEY) ?? 'null')
+    return {
+      enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
+      preset: PRESET_OPTIONS.some(option => option.id === parsed?.preset) ? parsed.preset : fallback.preset,
+    }
+  } catch (_error) {
+    return fallback
+  }
+}
+
+const initialState = Object.freeze({ open: false, hidden: false, busy: false, dialog: false, sideRatio: 50, parentId: null, sideId: null, anchorText: '', error: '', ...storedPreferences() })
 let uiState = initialState
 const subscribers = new Set()
 let sessionsService = null
+let inputTriggersService = null
 let NativeConversationRoot = null
 let projectedSideSessions = new WeakMap()
 
 function update(patch) {
   uiState = Object.freeze({ ...uiState, ...patch })
   for (const subscriber of subscribers) subscriber()
+}
+
+function updatePreferences(patch) {
+  const next = { ...patch }
+  if (next.enabled === false) next.hidden = true
+  update(next)
+  try {
+    globalThis.localStorage?.setItem(PREFERENCE_KEY, JSON.stringify({
+      enabled: uiState.enabled,
+      preset: uiState.preset,
+    }))
+  } catch (_error) {}
 }
 
 function subscribe(listener) {
@@ -64,10 +104,14 @@ async function rpc(method, input) {
 }
 
 async function openSide(parentId, anchorText = '') {
-  if (uiState.busy) return
+  if (!uiState.enabled || uiState.busy) return
+  if (uiState.open && uiState.parentId === parentId && uiState.sideId !== null) {
+    update({ hidden: false, anchorText, error: '' })
+    return
+  }
   update({ busy: true, error: '' })
   try {
-    const result = await rpc('sideChat.open', { parentSessionId: parentId, anchorText })
+    const result = await rpc('sideChat.open', { parentSessionId: parentId, anchorText, preset: uiState.preset })
     update({ open: true, hidden: false, dialog: false, busy: false, parentId, sideId: result.sessionId, anchorText })
   } catch (error) {
     update({ busy: false, error: error instanceof Error ? error.message : String(error) })
@@ -80,7 +124,7 @@ async function finishClose(mode) {
   update({ busy: true, error: '' })
   try {
     await rpc('sideChat.close', { sessionId: sideId, mode })
-    update({ ...initialState })
+    update({ ...initialState, enabled: uiState.enabled, preset: uiState.preset })
   } catch (error) {
     update({ busy: false, dialog: false, error: error instanceof Error ? error.message : String(error) })
   }
@@ -126,6 +170,7 @@ function IconAction({ label, children, onClick, disabled }) {
 
 function HeaderAction({ sessionId }) {
   const state = useSideState()
+  if (!state.enabled) return null
   if (sessionId === state.sideId) return null
   if (state.open) {
     if (sessionId !== state.parentId) return null
@@ -137,6 +182,43 @@ function HeaderAction({ sessionId }) {
     disabled: state.busy,
     onClick: () => openSide(sessionId),
   }, h(SideChatIcon))
+}
+
+function Toggle({ checked, onChange, label }) {
+  return h('label', { className: 'dsh-sc-switch', title: label },
+    h('input', { type: 'checkbox', checked, onChange: event => onChange(event.target.checked), 'aria-label': label }),
+    h('span', { 'aria-hidden': true }),
+  )
+}
+
+function SettingsSection() {
+  const state = useSideState()
+  return h('div', { className: 'dsh-sc-settings' },
+    h('div', { className: 'dsh-sc-settings-head' }, h('h2', null, '侧边聊天')),
+    h('div', { className: 'dsh-sc-settings-row' },
+      h('div', null, h('div', { className: 'dsh-sc-settings-title' }, '启用侧边聊天'), h('div', { className: 'dsh-sc-settings-desc' }, '关闭后隐藏侧聊入口和并排窗口。')),
+      h(Toggle, { checked: state.enabled, label: '启用侧边聊天', onChange: enabled => updatePreferences({ enabled }) }),
+    ),
+    h('div', { className: 'dsh-sc-settings-row' },
+      h('div', null, h('div', { className: 'dsh-sc-settings-title' }, '新侧聊模式'), h('div', { className: 'dsh-sc-settings-desc' }, '使用 DSH 原生 Agent 预设；已有侧聊保持原模式。')),
+      h('select', { className: 'dsh-sc-settings-select', value: state.preset, onChange: event => updatePreferences({ preset: event.target.value }), 'aria-label': '新侧聊模式' },
+        ...PRESET_OPTIONS.map(option => h('option', { key: option.id, value: option.id }, option.label)),
+      ),
+    ),
+  )
+}
+
+function SideUtilities({ sessionId }) {
+  const state = useSideState()
+  if (sessionId !== state.sideId) return null
+  return h(React.Fragment, null,
+    h(IconAction, { label: '隐藏侧聊', onClick: () => update({ hidden: true }) }, h(PanelRightIcon)),
+    h(IconAction, {
+      label: '关闭侧聊',
+      disabled: state.busy,
+      onClick: () => update({ dialog: true }),
+    }, h(CloseIcon)),
+  )
 }
 
 function SideNativeConversation({ kit, providedInfo }) {
@@ -155,7 +237,6 @@ function SideNativeConversation({ kit, providedInfo }) {
   )
   const useInput = selector => useObservable(providedInfo?.hooks?.input, selector, undefined)
   const useComposerBlock = selector => useObservable(providedInfo?.hooks?.composerBlock, selector, undefined)
-
   return h(NativeConversationRoot, {
     ...kit,
     sessionId: providedInfo.sessionId,
@@ -168,18 +249,18 @@ function SideNativeConversation({ kit, providedInfo }) {
 function CloseDialog() {
   const state = useSideState()
   if (!state.dialog) return null
-  return h('div', { className: 'dsh-sc-modal-backdrop', role: 'presentation', onMouseDown: event => {
+  return ReactDOM.createPortal(h('div', { className: 'dsh-sc-modal-backdrop', role: 'presentation', onMouseDown: event => {
     if (event.target === event.currentTarget && !state.busy) update({ dialog: false })
   } },
   h('div', { className: 'dsh-sc-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dsh-sc-close-title' },
-    h('h3', { id: 'dsh-sc-close-title' }, '关闭侧聊？'),
-    h('p', null, '默认关闭后会删除这段侧聊，不留记录、不存档。你也可以选择保留，以便稍后从当前主会话重新打开。'),
+    h('h3', { id: 'dsh-sc-close-title' }, '关闭侧聊'),
+    h('p', null, '默认会删除这段侧聊，且无法恢复。如果需要稍后继续，请选择“保留对话”。'),
     h('div', { className: 'dsh-sc-modal-actions' },
       h(ActionButton, { disabled: state.busy, onClick: () => update({ dialog: false }) }, '取消'),
       h(ActionButton, { disabled: state.busy, onClick: () => finishClose('keep') }, '保留对话'),
       h(ActionButton, { disabled: state.busy, className: 'dsh-sc-danger', onClick: () => finishClose('delete') }, state.busy ? '正在删除…' : '删除并关闭'),
     ),
-  ))
+  )), document.body)
 }
 
 function ParallelConversation(props) {
@@ -187,6 +268,7 @@ function ParallelConversation(props) {
   const splitRef = React.useRef(null)
   const mainRef = React.useRef(null)
   const [selection, setSelection] = React.useState(null)
+  const [sideInfo, setSideInfo] = React.useState(undefined)
   const SessionProvider = props.SessionProvider
 
   // DSH currently exposes only a current-session SessionProvider. Calling its stable
@@ -194,29 +276,66 @@ function ParallelConversation(props) {
   // we then supply the arbitrary child SessionProvideInfo without copying any UI.
   const providerProbe = SessionProvider({ empty: () => null, children: () => null })
   const BindingProvider = providerProbe.type
-  const sideInfo = state.sideId === null ? undefined : sessionsService?.provideInfo?.(state.sideId)
 
   React.useEffect(() => {
-    if (!state.open || state.sideId === null || state.anchorText === '') return
+    if (!state.enabled || !state.open || state.sideId === null) {
+      setSideInfo(undefined)
+      return undefined
+    }
+    const sideId = state.sideId
     let cancelled = false
     let attempts = 0
-    const applyDraft = () => {
+    const connect = () => {
+      if (cancelled) return
+      const info = sessionsService?.provideInfo?.(sideId)
+      const session = sessionsService?.binding?.(sideId)?.session
+      if (info !== undefined && typeof session?.open === 'function') {
+        void session.open().then(() => {
+          if (!cancelled) setSideInfo(info)
+        }).catch(error => {
+          if (!cancelled) update({ error: error instanceof Error ? error.message : String(error) })
+        })
+        return
+      }
+      attempts += 1
+      if (attempts < 40) setTimeout(connect, 100)
+      else update({ error: '无法打开侧聊的原生会话窗口' })
+    }
+    connect()
+    return () => { cancelled = true }
+  }, [state.enabled, state.open, state.sideId])
+
+  React.useEffect(() => {
+    if (!state.enabled || !state.open || state.sideId === null || state.anchorText === '') return
+    let cancelled = false
+    let attempts = 0
+    const insertReference = () => {
       if (cancelled) return
       const info = sessionsService?.provideInfo?.(state.sideId)
-      const setDraft = info?.props?.inputActions?.setDraft
-      if (typeof setDraft === 'function') {
-        setDraft(`请围绕主对话中选中的这段文字继续讨论：\n\n> ${state.anchorText.replaceAll('\n', '\n> ')}`)
+      const input = info?.hooks?.input?.getSnapshot?.()
+      const scope = sessionsService?.scope?.(state.sideId)
+      const text = state.anchorText
+      const label = text.replaceAll(/\s+/g, ' ').slice(0, 48) + (text.replaceAll(/\s+/g, ' ').length > 48 ? '…' : '')
+      const applied = input !== undefined && scope !== undefined && scope.bail(scope, 'slash/input-insert-reference', {
+        reference: { source: 'side-chat-selection', ref: text, label, clipboardText: text },
+        span: { start: 0, end: 0, draftRev: input.draftRev },
+      }) === true
+      if (applied) {
         update({ anchorText: '' })
         return
       }
       attempts += 1
-      if (attempts < 40) setTimeout(applyDraft, 100)
+      if (attempts < 40) setTimeout(insertReference, 100)
     }
-    applyDraft()
+    insertReference()
     return () => { cancelled = true }
-  }, [state.open, state.sideId, state.anchorText])
+  }, [state.enabled, state.open, state.sideId, state.anchorText])
 
   React.useEffect(() => {
+    if (!state.enabled) {
+      setSelection(null)
+      return undefined
+    }
     const root = mainRef.current
     if (root === null) return undefined
     const onMouseUp = event => {
@@ -236,7 +355,7 @@ function ParallelConversation(props) {
     }
     root.addEventListener('mouseup', onMouseUp)
     return () => root.removeEventListener('mouseup', onMouseUp)
-  }, [])
+  }, [state.enabled])
 
   const selectionButton = selection === null ? null : h('div', {
     className: 'dsh-sc-selection',
@@ -290,14 +409,6 @@ function ParallelConversation(props) {
   let side = null
   if (state.open && !state.hidden) {
     side = h('section', { className: 'dsh-sc-column dsh-sc-column-side', 'data-side-chat-side': '' },
-      h('div', { className: 'dsh-sc-side-actions' },
-        h(IconAction, { label: '隐藏侧聊', onClick: () => update({ hidden: true }) }, h(PanelRightIcon)),
-        h(IconAction, {
-          label: '关闭侧聊',
-          disabled: state.busy,
-          onClick: () => update({ dialog: true }),
-        }, h(CloseIcon)),
-      ),
       sideInfo === undefined
         ? h('div', { className: 'dsh-sc-error' }, '正在连接原生侧聊会话…')
         : h(BindingProvider, { value: sideInfo, key: state.sideId },
@@ -305,6 +416,7 @@ function ParallelConversation(props) {
         ),
     )
   }
+  if (!state.enabled) return h(NativeConversationRoot, props)
   return h(React.Fragment, null,
     h('div', {
       ref: splitRef,
@@ -346,11 +458,24 @@ function adoptNativeConversation(slots) {
 }
 
 return {
-  inject: ['slots', 'timer', 'sessions'],
+  inject: ['slots', 'timer', 'sessions', 'inputTriggers'],
   apply(ctx) {
     const slots = ctx.get('slots')
     sessionsService = ctx.get('sessions')
+    inputTriggersService = ctx.get('inputTriggers')
     styles.insert(CSS)
+
+    const releaseSelectionSource = inputTriggersService.registerSource({
+      trigger: '@',
+      name: 'side-chat-selection',
+      order: 1000,
+      candidates: async () => [],
+      onPick: () => undefined,
+      codec: {
+        clipboardText: ref => ref,
+        serialize: async ref => `> 主对话选文\n>\n${String(ref).split('\n').map(line => `> ${line}`).join('\n')}\n\n`,
+      },
+    })
 
     const releaseConversation = adoptNativeConversation(slots)
 
@@ -360,10 +485,25 @@ return {
       order: 90,
     }, HeaderAction)
 
+    slots.register({
+      name: 'conversation.session.header.utilities',
+      id: 'side-chat-controls',
+      order: 1000,
+    }, SideUtilities)
+
+    slots.inject('settings.section', () => slots.register({
+      name: 'settings.section',
+      id: 'side-chat',
+      order: 60,
+      label: () => '侧边聊天',
+    }, SettingsSection))
+
     ctx.effect(() => () => {
       releaseConversation()
       subscribers.clear()
       sessionsService = null
+      inputTriggersService = null
+      releaseSelectionSource()
       projectedSideSessions = new WeakMap()
       uiState = initialState
     }, 'dsh-side-chat: client state')

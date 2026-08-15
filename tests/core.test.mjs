@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   SIDE_ID_PREFIX,
+  SIDE_CHAT_PRESET,
   latestRetainedSession,
   makeSideSessionId,
   normalizeOpenRequest,
@@ -17,11 +18,14 @@ test('side session ids are isolated from normal root ids', () => {
 test('retained lookup accepts only this parent hidden child and chooses newest', () => {
   const headers = [
     { id: 'normal', createdAt: 99 },
-    { id: `${SIDE_ID_PREFIX}a`, origin: 'subagent', parentSession: 'p', createdAt: 1 },
-    { id: `${SIDE_ID_PREFIX}b`, origin: 'subagent', parentSession: 'other', createdAt: 9 },
-    { id: `${SIDE_ID_PREFIX}c`, origin: 'subagent', parentSession: 'p', createdAt: 4 },
+    { id: `${SIDE_ID_PREFIX}legacy`, origin: 'subagent', agentPreset: SIDE_CHAT_PRESET, parentSession: 'p', createdAt: 11 },
+    { id: `${SIDE_ID_PREFIX}creative`, agentPreset: 'cordis', parentSession: 'p', createdAt: 10 },
+    { id: `${SIDE_ID_PREFIX}a`, agentPreset: SIDE_CHAT_PRESET, parentSession: 'p', createdAt: 1 },
+    { id: `${SIDE_ID_PREFIX}b`, agentPreset: SIDE_CHAT_PRESET, parentSession: 'other', createdAt: 9 },
+    { id: `${SIDE_ID_PREFIX}c`, agentPreset: SIDE_CHAT_PRESET, parentSession: 'p', createdAt: 4 },
   ]
   assert.equal(latestRetainedSession(headers, 'p').id, `${SIDE_ID_PREFIX}c`)
+  assert.equal(latestRetainedSession(headers, 'p', 'cordis').id, `${SIDE_ID_PREFIX}creative`)
 })
 
 test('context retrieval is bounded, chronological and relevance-aware', () => {
@@ -39,5 +43,11 @@ test('opening carries selection as draft metadata, never as a transcript seed', 
   assert.deepEqual(normalizeOpenRequest({ parentSessionId: 'main', anchorText: '  chosen  ' }), {
     parentSessionId: 'main',
     anchorText: 'chosen',
+    preset: 'standard',
   })
+})
+
+test('opening accepts only shipped DSH presets and falls back to standard', () => {
+  assert.equal(normalizeOpenRequest({ parentSessionId: 'main', preset: 'cordis' }).preset, 'cordis')
+  assert.equal(normalizeOpenRequest({ parentSessionId: 'main', preset: 'claude' }).preset, 'standard')
 })

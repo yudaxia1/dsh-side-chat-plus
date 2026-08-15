@@ -1,11 +1,11 @@
-// dsh-side-chat host: a hidden child Session plus a scoped parent-context tool.
+// dsh-side-chat host: an archived root Session plus a scoped parent-context tool.
 // Core helpers are inlined at build time because the dynamic Cordis host cannot import.
 
 import { lstat, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 
 export const name = 'dsh-side-chat'
-export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'connection']
+export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'workspaceRegistry', 'connection']
 
 const sideChatHandlers = new Map()
 const harness = {
@@ -38,6 +38,8 @@ const harness = {
 
 export function apply(ctx) {
     const SIDE_ID_PREFIX = 'sidechat-'
+const SIDE_CHAT_PRESET = 'standard'
+const SIDE_CHAT_PRESETS = Object.freeze(['standard', 'code', 'minimal', 'cordis'])
 const MAX_QUERY_LENGTH = 400
 const DEFAULT_LIMIT = 24
 const MAX_LIMIT = 60
@@ -62,18 +64,20 @@ function makeSideSessionId(now = Date.now(), random = Math.random()) {
   return `${SIDE_ID_PREFIX}${now.toString(36)}-${entropy}`
 }
 
-function isSideSession(header, parentSessionId) {
+function isSideSession(header, parentSessionId, preset) {
   return header !== null
     && typeof header === 'object'
     && typeof header.id === 'string'
     && header.id.startsWith(SIDE_ID_PREFIX)
-    && header.origin === 'subagent'
+    && header.origin !== 'subagent'
+    && SIDE_CHAT_PRESETS.includes(header.agentPreset)
+    && (preset === undefined || header.agentPreset === preset)
     && header.parentSession === parentSessionId
 }
 
-function latestRetainedSession(headers, parentSessionId) {
+function latestRetainedSession(headers, parentSessionId, preset = SIDE_CHAT_PRESET) {
   return [...headers]
-    .filter(header => isSideSession(header, parentSessionId))
+    .filter(header => isSideSession(header, parentSessionId, preset))
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))[0]
 }
 
@@ -165,9 +169,11 @@ function formatContextSnapshot(parentSessionId, events, query) {
 
 function normalizeOpenRequest(input) {
   const source = input !== null && typeof input === 'object' ? input : {}
+  const preset = SIDE_CHAT_PRESETS.includes(source.preset) ? source.preset : SIDE_CHAT_PRESET
   return {
     parentSessionId: requireSessionId(source.parentSessionId, 'parentSessionId'),
     anchorText: typeof source.anchorText === 'string' ? source.anchorText.trim().slice(0, 8000) : '',
+    preset,
   }
 }
 
@@ -186,6 +192,7 @@ function normalizeContextRequest(input) {
     const sessions = ctx.get('sessions')
     const agents = ctx.get('agents')
     const agentPresets = ctx.get('agentPresets')
+    const workspaceRegistry = ctx.get('workspaceRegistry')
     const handles = new Map()
     const byParent = new Map()
 
@@ -220,14 +227,14 @@ function normalizeContextRequest(input) {
       return next
     }
 
-    function sidePrompt(parentSessionId) {
+    function sidePrompt(parentSessionId, preset) {
       return [
         'You are running in a side conversation beside a main DeepSeek Harness conversation.',
         'This is a real independent Session. Never claim that the main transcript was copied into this Session.',
         `The read-only main Session is ${parentSessionId}.`,
         'When the user refers to the main conversation, selected text, earlier decisions, files, tool results, or unresolved work, call side_chat_context with a focused query before answering.',
         'Use the returned excerpts as runtime context only. Do not repeat them unless the answer requires it.',
-        'Keep the selected agent preset, tools, skills, approval rules, and composer behavior unchanged.',
+        `Use the DSH ${preset} agent preset while keeping its native tools, skills, approval rules, and composer behavior unchanged.`,
       ].join('\n')
     }
 
@@ -245,15 +252,14 @@ function normalizeContextRequest(input) {
       }
     }
 
-    async function composeChild(childCtx, parent) {
-      const preset = parent.session?.header?.agentPreset
+    async function composeChild(childCtx, parent, preset) {
       if (agentPresets !== undefined && typeof agentPresets.mount === 'function') {
         await agentPresets.mount(childCtx, preset)
       }
       childCtx.systemPrompt.section({
         name: 'dsh-side-chat:relationship',
         order: 85,
-        text: sidePrompt(parent.id),
+        text: sidePrompt(parent.id, preset),
       })
       childCtx.tools.register({
         name: 'side_chat_context',
@@ -286,10 +292,10 @@ function normalizeContextRequest(input) {
       })
     }
 
-    async function retainedHeader(parentSessionId) {
+    async function retainedHeader(parentSessionId, preset) {
       if (persistence === undefined || typeof persistence.list !== 'function') return undefined
       const headers = await persistence.list()
-      return latestRetainedSession(headers, parentSessionId)
+      return latestRetainedSession(headers, parentSessionId, preset)
     }
 
     function remember(parentSessionId, handle) {
@@ -298,15 +304,15 @@ function normalizeContextRequest(input) {
       return handle
     }
 
-    async function createOrResume(parentSessionId) {
+    async function createOrResume(parentSessionId, preset) {
       const knownId = byParent.get(parentSessionId)
       if (knownId !== undefined) {
         const known = handles.get(knownId)
-        if (known !== undefined) return { handle: known, resumed: true }
+        if (known?.agent?.session?.header?.agentPreset === preset) return { handle: known, resumed: true }
       }
 
       const parent = await parentAgent(parentSessionId)
-      const retained = await retainedHeader(parentSessionId)
+      const retained = await retainedHeader(parentSessionId, preset)
       if (retained !== undefined) {
         const live = agents.get(retained.id)
         if (live !== undefined) {
@@ -314,7 +320,7 @@ function normalizeContextRequest(input) {
         }
         const handle = await agents.resume({
           resumeSessionId: retained.id,
-          setup: childCtx => composeChild(childCtx, parent),
+          setup: childCtx => composeChild(childCtx, parent, preset),
         })
         return { handle: remember(parentSessionId, handle), resumed: true }
       }
@@ -325,22 +331,19 @@ function normalizeContextRequest(input) {
         meta: {
           ...(parent.session?.header?.cwd === undefined ? {} : { cwd: parent.session.header.cwd }),
           parentSession: parentSessionId,
-          origin: 'subagent',
-          delegationDepth: Number(parent.session?.header?.delegationDepth ?? 0) + 1,
-          ...(parent.session?.header?.agentPreset === undefined
-            ? {}
-            : { agentPreset: parent.session.header.agentPreset }),
+          agentPreset: preset,
         },
         agentOptions: safeAgentOptions(parent),
-        setup: childCtx => composeChild(childCtx, parent),
+        setup: childCtx => composeChild(childCtx, parent, preset),
       })
       return { handle: remember(parentSessionId, handle), resumed: false }
     }
 
     async function open(input) {
       const request = normalizeOpenRequest(input)
-      const result = await createOrResume(request.parentSessionId)
+      const result = await createOrResume(request.parentSessionId, request.preset)
       const child = result.handle.agent
+      await requireService(workspaceRegistry, 'workspaceRegistry').archiveSession(child.id)
       return {
         sessionId: child.id,
         parentSessionId: request.parentSessionId,
