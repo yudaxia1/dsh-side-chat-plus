@@ -1,94 +1,90 @@
-# 调研记录：DSH 公开扩展接口与缺口分析
+# DSH public capability audit
 
-> 对应目标文档《技术实施边界》第 1、5 条：先检测、不假设；公开接口不足时记录缺口、
-> 最小上游改动方案与临时降级实现。
+审计对象：`E:\DSH_Work\dsh-src\deepseek-harness`，只读参考 checkout，HEAD `ae9a161637d24abf54cb034edec36ee11af0828d`。本插件运行时不依赖该路径，也没有修改 checkout。
 
-## 1. 环境事实（以运行中的 Harness 为准）
+## 1. Host catalog
 
-- DSH 版本：`@deepseek-ai/dsh@0.1.0-rc.6`（npm npx 缓存）；
-  源码检出 `E:\DSH_Work\dsh-src\deepseek-harness`（分支 `feat/goal-mode`）。
-- Web Profile：`C:\Users\cxl\.dsh\profiles\web`（`cordis.yml` 为空，全部由 bundle 层组合）。
-- 持久化后端：web-app bundle 挂载 `storage-json`（`root: dshHomePath('storages')`）+
-  `storage-domain`（`backend: json`）→ 落盘目录 `C:\Users\cxl\.dsh\storages\`。
+主要公共 catalog 证据位于：
 
-## 2. 采用的公开接口（均来自运行时 Inspect Provider 与源码验证）
+- `packages/extensions/tool-cordis/src/api-catalog.ts`：`agentDefaultModel`、`llm`、`attachments`、`sandboxPolicy`、`sessionQuery`、`agents` 的 public service/types；
+- `packages/extensions/tool-cordis/src/services/` 及对应 session-query/agent 实现：root session lifecycle、readSession 和权限参数边界；
+- DSH client slots/layout catalog：`conversation.session.header.actions`、`conversation.chat.assistant-actions`、composer slots、`shell.overlay`、`details`/sidebar owner。
 
-| 能力 | 接口 | 证据 |
-|---|---|---|
-| 独立模型流 | `ctx.llm.stream(GenerateOptions)`（Host Service `llm`） | Service catalog；DeepSeek 适配器只读 `role/content`，可手构消息 |
-| KV 持久化 | `ctx.storageDomain.open(spec)` → `Domain.table('chats')` | storage-domain 源码；web profile 已挂载 |
-| 会话日志读取 | `ctx.sessionQuery.readSession(sessionId)` → `{ session, events }` | session-query 源码；goal-mode 插件同款用法 |
-| 默认模型兜底 | `ctx.agentDefaultModel.currentSelection()` → `{ provider, model, reasoningEffort? }` | core/agent model-selection 源码 |
-| 客户端 slot | `slots.inject(name, () => slots.register({name,id,order,label}, Component))` | ui-goal-mode 参考实现 |
-| 回传输入框 | 会话标准 kit `props.inputActions.setDraft(text)` | ui-conversation input/contract.ts |
-| 消息级动作 | `conversation.chat.assistant-actions` owner `{ messageId }` | ui-conversation contract/slots.ts |
-| DOM 定位 | `data-chat-anchor-key` 属性（node key） | ui-conversation ChatNodeSeat.tsx |
-| 动态宿主 RPC | `harness.handle(method, handler)` / 客户端 `host.call` | cordis-host-runner / cordis-client-runner |
-| 当前会话 id | 根作用域 `props.useSessions(s => s.current)` | runtime sessions/service.ts |
+### 结论
 
-## 3. 约束与临时降级实现（重要）
+| 需要的能力 | 公开证据 | v2 决策 |
+| --- | --- | --- |
+| independent side session | `ctx.get('agents').create/resume` + Agent `followup/cancel` | 新侧聊使用普通 root session；不设置额外 parent/origin lineage |
+| parent session transcript | `ctx.get('sessionQuery').readSession` | 已实现；事件归一化和稳定 source refs |
+| current model/list | `agentDefaultModel.currentSelection`、`llm.listProviders/listModels/resolveModelInfo` | 已实现；真实 catalog，start-time `agentOptions` |
+| safe default | root Agent composition + runtime capability probe | 默认不宣称未被 DSH runtime 强制的工具/权限；能力由公开 adapter 实际决定 |
+| native read-only | 没有 start/followup 可验证的 sandbox/authority profile | UI 使用 DSH 原生 id，但当前 disabled；运行时 adapter 出现时 feature-detect 启用 |
+| native workspace-write / full-access | 尚未找到独立 root Agent 的 per-session authority setter | 不静默升级；peer session 使用主 Agent 原生 composition，独立切换仍需正式 DSH authority adapter |
+| images | `attachments.imageLimits/saveImage` + side-thread `draftAttachments` | 选择阶段保存安全引用、刷新可恢复 chip、发送进入真实 image block |
+| arbitrary files | 没有 public picker/fileMentions/openFile/content-block service | unsupported，显式错误 |
+| native parallel right column | `details` session seat + `ctx.layout.openDetails/closeDetails`；`AppFrame` grid 的第三列 | 已实现；侧聊打开期间临时替换 native DetailsPanel，关闭时释放并恢复 |
+| overlay fallback | `shell.overlay` additive overlay seat；`AppFrame` 把它放在各列之上 | 仅当 layout/details 不可用时启用；会覆盖主消息，明确标记为 fallback |
+| parent send | client scoped `inputActions.setDraft/submit`，host `sideChat.parentSendAudit` | explicit confirmation -> native submit; no host append; result stages auditable |
+| retention | storage `settings` + optional `workspaceRegistry.archiveSession` | ask/keep/delete and explicit close cleanup; public archive is not physical child deletion |
+| Host→Client push | 当前 catalog 未暴露 public push listener | poll 仅在 transport 抽象内 |
 
-### 3.1 沙箱禁 `require` → 无法 import zod
+## 2. Main conversation source audit
 
-动态宿主半边运行在 `node:vm` 新 realm，`require` 被陷阱禁用（含 `setTimeout/fetch/process/Buffer`）。
-`storageDomain.open()` 的 spec 需要 zod `valueSchema`。**临时降级**：传入结构性透传 schema
-（`{ parse: v => v, safeParse: v => ({ success: true, data: v }) }`）；storage-domain 只在装载
-边界调用 `schema.parse(raw)`，透传即保留原样（记录由插件自身构造，天然是合法 JSON）。
-- **最小上游改动**：`storage-domain` 增加一个“接受原始 JSON 记录”的免 schema 表声明，
-  或允许在沙箱宿主中注入 zod（如通过 `harness` extras 暴露 `z`）。
+审计文件：
 
-### 3.2 自定义事件进主会话日志会被持久化读取端拒绝
+- `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx`
+- `packages/client/ui-conversation/src/client/skeleton/InputBar.module.css`
+- `packages/client/ui-conversation/src/client/chat/MessageItem.tsx`
+- `packages/client/ui-conversation/src/client/chat/AssistantMarkdown.tsx`
+- `packages/client/ui-primitives/src/markdown/MarkdownText.tsx`
+- `packages/client/ui-primitives/src/markdown/MessageText.tsx`
+- `packages/client/ui-conversation/src/client/chat/ChatView.tsx`
 
-`Session.append(type, data)` 生成的信封**无法设置 `ignorable`**，而持久化读取端对
-`KNOWN_SESSION_EVENT_TYPES` 之外的 event type 会**拒绝重建整个会话**，除非事件携带
-`ignorable: true`（core/session known-event-types.ts）。因此侧聊数据**不能**以自定义事件
-写入主会话日志（goal-mode 之所以能读 `goal/change`，是因为它是仓库内已登记的类型）。
-→ 采用 `storageDomain` KV 表持久化（见 3.1），绕开日志信封限制。
-- **最小上游改动**：为公开插件提供“可安全追加的 ignorable 自定义事件”注册面
-  （`registerIgnorableEventType(name)` 或 `append` 增加 `ignorable` 选项）。
+主 composer 的重要行为已对齐到 side composer：controlled draft、composition ref / native composing guard、keyCode 229、Enter repeat guard、Shift+Enter、focus preventScroll、失败保留 draft、stop action、图片 rail、theme tokens 和 near-bottom scroll。主消息的用户 bubble / assistant Markdown / code block / normalized tool result 视觉与语义被最小化适配到独立 client；parent submit 仅在显式确认点击后发生。
 
-### 3.3 沙箱无 `AbortController`，适配器用 `AbortSignal.any`
+但这些内部 React modules 没有动态插件可用的 public component service/export。直接复制整套组件会引入内部依赖和 monorepo coupling，直接 import 也会在 standalone plugin build 时失败。因此当前代码注释和文档明确写作“adapted/reimplemented”，不写“shared native component”或“完全复用”。这是当前公共扩展接口的真实 gap，而不是把 side chat 主动设计成另一种产品。
 
-DeepSeek 适配器 `AbortSignal.any([options.signal, consumer.signal])` 需要**真实** AbortSignal，
-鸭子类型信号会被拒绝。**临时降级**：取消走 `iterator.return()` 级联（见 ARCHITECTURE §4.1）。
-- **最小上游改动**：沙箱暴露 `AbortController`（作为 harness 内置符号），
-  或 `llm.stream` 接受“取消回调/AbortSignal 工厂”参数。
+## 3. Layout decision
 
-### 3.4 无 Host→Client 推送通道 → 流式用轮询
+已检查 public shell/sidebar/dock/layout surfaces：
 
-包私有 RPC 方向为 Client→Host 请求/响应。**临时降级**：~400ms 轮询 `sideChat.poll`
-（带 seq/textRev 双游标，见 ARCHITECTURE §4.2）。
-- **最小上游改动**：增加包私有事件通道（如 `harness.publish(method, payload)` +
-  客户端 `host.on(method, listener)`），或复用现有 SSE 帧通道推送增量。
+- `details` 是 DSH 自己拥有的右侧 details column，注册插件组件会替换内置 DetailsPanel；本插件只在侧聊打开期间占用它，关闭时释放注册，因此主会话工具详情可恢复；
+- `shell.overlay` 可追加 root-level UI，但语义是浮层 seat，不能形成并列列；
+- `sidebar` 是左侧整体列，不适合右侧 parallel pane；
+- `ctx.layout` 虽没有通用 split/reserve-width API，但其公开 `openDetails/closeDetails` 足以驱动已有右列。
 
-### 3.5 根作用域面板拿不到会话标准 kit
+因此当前优先实现真实 `details` 并列列；只有 `layout` 或 `details` seat 缺失/注册失败才启用固定 app-edge overlay，无 backdrop、无 centered modal、无 brittle private DOM docking selector。`dsh_sc_open` 和 `--dsh-side-chat-layout-state` 只用于诊断，桌面列宽由 DSH `AppFrame` 负责，不由插件伪造。
 
-`shell.overlay` 是根作用域，只有 `useSessions/useWorkspaces`；`inputActions` 只在会话作用域
-组件上。**临时降级**：回传通过“共享 store → header 按钮（会话作用域）消费 pendingInsert →
-`inputActions.setDraft`”的桥接完成；`useSession` 快照在事件处理器里经
-`ctx.get('sessions').binding(id).session.getSnapshot()` 读取。
+精确源码依据：`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts:1025-1057` 将 `details` 标为右侧列并说明注册会替换 shipped DetailsPanel；同文件 `:1060-1080` 明确禁止插件注册 `root`；`packages/client/ui-layout/src/client/AppFrame.tsx:168-198` 将 `details` 放入第三个 grid track，`packages/client/ui-layout/src/client/service.ts:18-30` 暴露 `openDetails/closeDetails`。
 
-### 3.6 工具结果/文件引用锚点
+## 4. Context and safety
 
-`conversation.chat.assistant-actions` 只覆盖“已完结的助手消息”。工具结果、用户消息、文件
-引用的**逐条**入口需要新增 slot 或覆盖 `conversation.chat.node` 渲染器（仓库内节点 key 表
-固定，插件不能加新 kind）。**当前降级**：面板内“引用最近消息”弹层（`sideChat.recent`）
-覆盖用户/助手消息；工具结果与文件引用锚点列入后续清单。
+公开 session events 的可见边界不是“把原始日志全文塞进 prompt”：
 
-## 4. 复现步骤（约束复现）
+- user/assistant 只保留 visible text；
+- tool call/result 只保留 name/status/text summary；
+- hidden/internal/reasoning/plugin/system 和内部 metadata 被过滤；
+- source refs 只包含 session/event/message/seq/renderer node key 等安全稳定字段；
+- file anchor 没有 public content API 时标记 unsupported。
 
-1. 沙箱禁 require：在任意会话用 `cordis_define` 提交含 `require('zod')` 的 `code.host`，
-   运行后宿主报 `require is not available in the dynamic package sandbox`。
-2. 自定义事件：`code.host` 里 `session.append('my/event', {...})` 后重启 DSH 并打开该会话，
-   持久化读取端拒绝重建（该事件不在 KNOWN_SESSION_EVENT_TYPES 且无 ignorable）。
-3. 无 AbortController：`vm.runInContext('typeof AbortController', ctx)` → `'undefined'`；
-   向 `llm.stream` 传假 signal 时适配器抛 `AbortSignal.any` 类型错误。
+这使“没有 anchor 也能引用较早 visible parent context”和“Live refresh 会捕获新消息”成为可测试契约，同时 Snapshot 能复现。
 
-## 5. 后续实施清单（非阻塞项）
+## 5. Persistence
 
-- 工具结果/文件引用锚点入口（需上游 slot 或渲染器覆盖方案）。
-- 侧聊内允许“读工作区文件”的受控工具（仅只读工具，仍需上游工具作用域支持）。
-- 由轮询升级为推送（等 3.4 的上游通道）。
-- 侧聊记录的增量 delta 事件以控制日志体积（当前整记录快照写，见 todo/write 同款模式）。
-- 主会话被删除后侧聊的“孤儿/归档”标记与清理 UI（数据模型已含 parentSessionId 与
-  `parentExists` 检测，UI 提示待补）。
+v2 使用 `storageDomain` 的 `threads` 表和 `settings` 表。记录含 schemaVersion、parentSessionId、context version/hash、独立 root session id、`childLink.relation:'peer'`、selectedModel、permissionMode、retentionPolicy、parent-send audit、messages 和 transport cursors。旧的非 peer lineage 不会被当前独立对话列表重新激活。
+
+所有 list/get/mutate 先做 parent ownership check。重新创建 core/host 只从 durable table 读取同 parent records；不同 parent session 不会看到彼此的 threads。
+
+## 6. Known platform gaps
+
+1. **额外第四列**：当前 public layout 只提供一个 `details` 右列，不提供额外 plugin split/reserve-width API。侧聊通过临时占用 details 实现主对话旁边的真实第三列，但侧聊打开期间原生工具 DetailsPanel 不同时显示；关闭后恢复。没有 layout/details 的旧宿主仍会使用 overlay fallback 并可能覆盖主消息。
+2. **原生消息 renderer**：需要把 MessageItem/AssistantMarkdown/MarkdownText/MessageText 以稳定 public client service/export 暴露；当前是小型自包含适配。
+3. **完整工具/文件节点**：需要 node-level public slots、file picker、fileMentions 或安全 attachment content-block API；当前只显示 normalized tool source 和图片 chip。
+4. **权限层级**：需要 child start/followup 接受并强制 sandbox/authority/approval profile；当前只 enforce 空 tool allowlist。宿主已做运行时 adapter 探测，不把 gap 固化成永远禁用。
+5. **模型切换**：需要 followup model parameter；当前选中的 public model 只作用于第一次 start。
+6. **Push streaming**：需要 public host-to-client event surface；当前轮询由 transport 封装。
+7. **侧聊物理删除**：需要 DSH root session delete/purge API；当前可清理插件记录，最多 archive workspace registry，无法保证平台 transcript/log 无痕。
+
+## 7. Source/license note
+
+DeepSeek Harness checkout 的根 `LICENSE` 是 MIT，版权标注 DeepSeek 2026。本插件没有复制大模块或把 checkout 路径打包进 dist；仅根据上列源码审计其公开契约和交互模式，并在 `src/client.js` 中保留最小适配注释。若未来直接复用内部源文件，应只引入最小依赖闭包并随文件保留 MIT notice，同时更新本说明和能力矩阵。

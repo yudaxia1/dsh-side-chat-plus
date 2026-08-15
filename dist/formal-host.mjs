@@ -1,9 +1,42 @@
 // dsh-side-chat host: a hidden child Session plus a scoped parent-context tool.
 // Core helpers are inlined at build time because the dynamic Cordis host cannot import.
 
-return {
-  inject: ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets'],
-  apply(ctx) {
+import { lstat, rmdir, unlink } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, resolve } from 'node:path'
+
+export const name = 'dsh-side-chat'
+export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'connection']
+
+const sideChatHandlers = new Map()
+const harness = {
+  handle(method, handler) {
+    sideChatHandlers.set(method, handler)
+    return () => sideChatHandlers.delete(method)
+  },
+  async deleteSessionArtifact(location, sessionId) {
+    if (location?.kind !== 'jsonl' || typeof location.path !== 'string' || !isAbsolute(location.path)) {
+      throw new Error('拒绝删除无效的会话存储位置')
+    }
+    if (typeof sessionId !== 'string' || !sessionId.startsWith('sidechat-')) {
+      throw new Error('拒绝删除非侧聊会话')
+    }
+    const target = resolve(location.path)
+    const filename = basename(target)
+    if (filename !== 'session.jsonl' && filename !== 'session.jsonl.zstd') {
+      throw new Error('拒绝删除非 JSONL 会话文件')
+    }
+    const info = await lstat(target)
+    if (!info.isFile()) throw new Error('侧聊存储位置不是普通文件')
+    await unlink(target)
+    try {
+      await rmdir(dirname(target))
+    } catch (error) {
+      if (error?.code !== 'ENOTEMPTY' && error?.code !== 'ENOENT') throw error
+    }
+  },
+}
+
+export function apply(ctx) {
     const SIDE_ID_PREFIX = 'sidechat-'
 const MAX_QUERY_LENGTH = 400
 const DEFAULT_LIMIT = 24
@@ -373,5 +406,24 @@ function normalizeContextRequest(input) {
       byParent.clear()
       await Promise.allSettled(active.map(handle => handle.dispose()))
     }, 'dsh-side-chat: dispose children')
-  },
+  const connection = ctx.get('connection')
+  if (connection?.rpc?.handle === undefined) {
+    throw new Error('dsh-side-chat-dev: public connection.rpc is unavailable')
+  }
+  const disposeRpc = connection.rpc.handle('/side-chat', async (endpoint, payload, signal) => {
+    const handler = sideChatHandlers.get(endpoint)
+    if (handler === undefined) {
+      return { ok: false, error: { code: 'internal', message: `未知侧聊方法: ${endpoint}`, details: {} } }
+    }
+    try {
+      return { ok: true, value: await handler(payload, signal) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return { ok: false, error: { code: 'internal', message, details: {} } }
+    }
+  }, { authority: 'trusted-host' })
+  ctx.effect(() => async () => {
+    await disposeRpc()
+    sideChatHandlers.clear()
+  }, 'dsh-side-chat-dev: connection rpc')
 }

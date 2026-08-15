@@ -1,199 +1,235 @@
-// dsh-side-chat — code.host（Node 进程半边，动态 Cordis 插件）
-// 生成文件：由 build.mjs 把 src/core.mjs 内联到 __CORE_SOURCE__ 处，产出 dist/host.js。
-// 用途：包私有 RPC（sideChat.*）、storageDomain 持久化、独立 llm.stream 流式生成。
-// 用法：把 dist/host.js 内容作为 cordis_define 的 code.host。
+// dsh-side-chat host: a hidden child Session plus a scoped parent-context tool.
+// Core helpers are inlined at build time because the dynamic Cordis host cannot import.
 
 return {
+  inject: ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets'],
   apply(ctx) {
     /*__CORE_SOURCE__*/
 
-    const storageDomain = ctx.get('storageDomain')
     const sessionQuery = ctx.get('sessionQuery')
+    const persistence = ctx.get('sessionPersistence')
     const sessions = ctx.get('sessions')
-    const llm = ctx.get('llm')
-    const agentDefaultModel = ctx.get('agentDefaultModel')
     const agents = ctx.get('agents')
+    const agentPresets = ctx.get('agentPresets')
+    const handles = new Map()
+    const byParent = new Map()
 
-    if (storageDomain === undefined || sessionQuery === undefined || sessions === undefined || llm === undefined) {
-      console.log('dsh-side-chat: 必需服务不可用（storageDomain/sessionQuery/sessions/llm），宿主半边停用')
-      return
+    function requireService(value, name) {
+      if (value === undefined || value === null) {
+        throw new SideChatError('capability-unavailable', `DSH 服务 ${name} 不可用`)
+      }
+      return value
     }
 
-    // 沙箱不能 import zod；storageDomain.open 只在装载边界调用 schema.parse(raw)。
-    // 结构性透传 schema 保留记录原样（记录由本插件构造，天然是合法 JSON）。
-    // 缺口与替代方案见 docs/RESEARCH.md「持久化缺口」。
-    const passthroughSchema = {
-      parse: (value) => value,
-      safeParse: (value) => ({ success: true, data: value }),
+    async function parentAgent(parentSessionId) {
+      const live = requireService(agents, 'agents').get(parentSessionId)
+      if (live !== undefined) return live
+      if (persistence !== undefined && typeof persistence.list === 'function') {
+        const header = (await persistence.list()).find(item => item.id === parentSessionId)
+        if (header !== undefined) {
+          // A historical main conversation does not need to be resumed just to
+          // establish a side Session. Its durable header carries the cwd,
+          // preset and ancestry needed by the child composition.
+          return { id: parentSessionId, session: { header }, options: {} }
+        }
+      }
+      throw new SideChatError('parent-unavailable', '找不到主会话，无法开启侧聊')
     }
 
-    let core = null
-    let ready = null
+    function safeAgentOptions(parent) {
+      const options = parent.options ?? {}
+      const next = {}
+      for (const key of ['provider', 'model', 'maxTokens', 'temperature', 'reasoningEffort']) {
+        if (options[key] !== undefined) next[key] = options[key]
+      }
+      return next
+    }
 
-    const openDomain = async () => {
-      let domain
-      try {
-        domain = await storageDomain.open({
-          name: 'side_chat',
-          version: 1,
-          tables: { chats: { valueSchema: passthroughSchema } },
+    function sidePrompt(parentSessionId) {
+      return [
+        'You are running in a side conversation beside a main DeepSeek Harness conversation.',
+        'This is a real independent Session. Never claim that the main transcript was copied into this Session.',
+        `The read-only main Session is ${parentSessionId}.`,
+        'When the user refers to the main conversation, selected text, earlier decisions, files, tool results, or unresolved work, call side_chat_context with a focused query before answering.',
+        'Use the returned excerpts as runtime context only. Do not repeat them unless the answer requires it.',
+        'Keep the selected agent preset, tools, skills, approval rules, and composer behavior unchanged.',
+      ].join('\n')
+    }
+
+    async function readParentContext(parentSessionId, request) {
+      const normalized = normalizeContextRequest(request)
+      const snapshot = await requireService(sessionQuery, 'sessionQuery').readSession(parentSessionId)
+      const events = Array.isArray(snapshot?.events) ? snapshot.events : []
+      const selected = selectContextEvents(events, normalized.query, normalized.limit)
+      return {
+        parentSessionId,
+        query: normalized.query,
+        eventCount: events.length,
+        selectedCount: selected.length,
+        context: formatContextSnapshot(parentSessionId, selected, normalized.query),
+      }
+    }
+
+    async function composeChild(childCtx, parent) {
+      const preset = parent.session?.header?.agentPreset
+      if (agentPresets !== undefined && typeof agentPresets.mount === 'function') {
+        await agentPresets.mount(childCtx, preset)
+      }
+      childCtx.systemPrompt.section({
+        name: 'dsh-side-chat:relationship',
+        order: 85,
+        text: sidePrompt(parent.id),
+      })
+      childCtx.tools.register({
+        name: 'side_chat_context',
+        description: 'Read a focused, bounded excerpt from the main conversation. Use this whenever the side-chat request depends on the main conversation, its files, tool results, decisions, or selected text.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'A focused retrieval question, keyword, file name, decision, or topic.' },
+            limit: { type: 'integer', minimum: 1, maximum: 60, description: 'Maximum excerpts to return. Default 24.' },
+          },
+          required: ['query'],
+          additionalProperties: false,
+        },
+        output: {
+          schema: {
+            type: 'object',
+            properties: {
+              parentSessionId: { type: 'string' },
+              query: { type: 'string' },
+              eventCount: { type: 'integer' },
+              selectedCount: { type: 'integer' },
+              context: { type: 'string' },
+            },
+            required: ['parentSessionId', 'query', 'eventCount', 'selectedCount', 'context'],
+            additionalProperties: false,
+          },
+          render: (_args, value) => [{ type: 'text', text: value.context }],
+        },
+        execute: args => readParentContext(parent.id, args),
+      })
+    }
+
+    async function retainedHeader(parentSessionId) {
+      if (persistence === undefined || typeof persistence.list !== 'function') return undefined
+      const headers = await persistence.list()
+      return latestRetainedSession(headers, parentSessionId)
+    }
+
+    function remember(parentSessionId, handle) {
+      handles.set(handle.agent.id, handle)
+      byParent.set(parentSessionId, handle.agent.id)
+      return handle
+    }
+
+    async function createOrResume(parentSessionId) {
+      const knownId = byParent.get(parentSessionId)
+      if (knownId !== undefined) {
+        const known = handles.get(knownId)
+        if (known !== undefined) return { handle: known, resumed: true }
+      }
+
+      const parent = await parentAgent(parentSessionId)
+      const retained = await retainedHeader(parentSessionId)
+      if (retained !== undefined) {
+        const live = agents.get(retained.id)
+        if (live !== undefined) {
+          return { handle: { agent: live, dispose: async () => {} }, resumed: true, borrowed: true }
+        }
+        const handle = await agents.resume({
+          resumeSessionId: retained.id,
+          setup: childCtx => composeChild(childCtx, parent),
         })
-      } catch (error) {
-        // 另一个会话的实例已打开同一 domain：共享它（记录按 parentSessionId 隔离）。
-        const name = error !== null && typeof error === 'object' && typeof error.code === 'string'
-          ? error.code
-          : ''
-        const existing = name === 'already-open' ? storageDomain.get('side_chat') : undefined
-        if (existing === undefined) throw error
-        domain = existing
+        return { handle: remember(parentSessionId, handle), resumed: true }
       }
-      core = createSideChatCore({ domain, sessionQuery, sessions, llm, agentDefaultModel, agents })
-      return core
+
+      const sessionId = makeSideSessionId()
+      const handle = await agents.create({
+        sessionId,
+        meta: {
+          ...(parent.session?.header?.cwd === undefined ? {} : { cwd: parent.session.header.cwd }),
+          parentSession: parentSessionId,
+          origin: 'subagent',
+          delegationDepth: Number(parent.session?.header?.delegationDepth ?? 0) + 1,
+          ...(parent.session?.header?.agentPreset === undefined
+            ? {}
+            : { agentPreset: parent.session.header.agentPreset }),
+        },
+        agentOptions: safeAgentOptions(parent),
+        setup: childCtx => composeChild(childCtx, parent),
+      })
+      return { handle: remember(parentSessionId, handle), resumed: false }
     }
 
-    ready = openDomain()
-    ready.catch((error) => {
-      console.log('dsh-side-chat: storage domain 打开失败', error instanceof Error ? error.message : String(error))
-    })
-
-    const withCore = async (op) => {
-      const opened = core !== null ? core : await ready
-      return op(opened)
+    async function open(input) {
+      const request = normalizeOpenRequest(input)
+      const result = await createOrResume(request.parentSessionId)
+      const child = result.handle.agent
+      return {
+        sessionId: child.id,
+        parentSessionId: request.parentSessionId,
+        resumed: result.resumed,
+        anchorText: request.anchorText,
+      }
     }
 
-    const fail = (error) => ({
-      ok: false,
-      error: {
-        code: error !== null && typeof error === 'object' && typeof error.code === 'string' ? error.code : 'error',
-        message: error instanceof Error ? error.message : String(error),
-      },
+    async function release(sessionId) {
+      const handle = handles.get(sessionId)
+      if (handle === undefined) return
+      if (sessions !== undefined && typeof sessions.flush === 'function') {
+        await sessions.flush(handle.agent.session)
+      }
+      await handle.dispose()
+      handles.delete(sessionId)
+      for (const [parent, child] of byParent) {
+        if (child === sessionId) byParent.delete(parent)
+      }
+    }
+
+    async function close(input) {
+      const source = input !== null && typeof input === 'object' ? input : {}
+      const sessionId = requireSessionId(source.sessionId)
+      const mode = source.mode === 'keep' ? 'keep' : source.mode === 'delete' ? 'delete' : undefined
+      if (mode === undefined) throw new SideChatError('invalid-request', 'mode 必须是 keep 或 delete')
+
+      if (mode === 'keep') {
+        await release(sessionId)
+        return { sessionId, mode, deleted: false }
+      }
+
+      const handle = handles.get(sessionId)
+      const live = handle?.agent ?? agents.get(sessionId)
+      const header = live?.session?.header
+        ?? (persistence === undefined ? undefined : (await persistence.list()).find(item => item.id === sessionId))
+      if (header === undefined || !String(header.id).startsWith(SIDE_ID_PREFIX)) {
+        throw new SideChatError('not-side-chat', '拒绝删除非侧聊会话')
+      }
+      const location = persistence?.locate?.(header)
+      if (location === undefined || location.kind !== 'jsonl') {
+        throw new SideChatError('delete-unsupported', '当前会话存储后端不支持逐会话彻底删除；已保留该侧聊')
+      }
+      if (typeof harness.deleteSessionArtifact !== 'function') {
+        throw new SideChatError('delete-unsupported', '当前插件载入方式不提供安全文件删除能力；请使用正式本地插件包')
+      }
+      await release(sessionId)
+      await harness.deleteSessionArtifact(location, sessionId)
+      return { sessionId, mode, deleted: true }
+    }
+
+    harness.handle('sideChat.open', open)
+    harness.handle('sideChat.close', close)
+    harness.handle('sideChat.context', async input => {
+      const source = input !== null && typeof input === 'object' ? input : {}
+      return readParentContext(requireSessionId(source.parentSessionId, 'parentSessionId'), source)
     })
+    harness.handle('sideChat.ping', async () => ({ pong: Date.now() }))
 
-    const sessionIdOf = (args) => (
-      args !== null && typeof args === 'object' && typeof args.sessionId === 'string' ? args.sessionId : ''
-    )
-    const sideChatIdOf = (args) => (
-      args !== null && typeof args === 'object' && typeof args.sideChatId === 'string' ? args.sideChatId : ''
-    )
-
-    harness.handle('sideChat.list', async (args) => {
-      const sessionId = sessionIdOf(args)
-      if (sessionId === '') return { ok: false, error: { code: 'no-session', message: '缺少 sessionId' } }
-      try {
-        return await withCore((c) => c.list(sessionId))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.create', async (args) => {
-      const sessionId = sessionIdOf(args)
-      if (sessionId === '') return { ok: false, error: { code: 'no-session', message: '缺少 sessionId' } }
-      const anchor = args !== null && typeof args === 'object' && args.anchor !== undefined ? args.anchor : undefined
-      try {
-        return await withCore((c) => c.create(sessionId, anchor))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.rename', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      const title = args !== null && typeof args === 'object' ? args.title : undefined
-      try {
-        return await withCore((c) => c.rename(sideChatId, sessionId, title))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.delete', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      try {
-        return await withCore((c) => c.remove(sideChatId, sessionId))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.send', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      const text = args !== null && typeof args === 'object' ? args.text : undefined
-      try {
-        return await withCore((c) => c.send(sideChatId, sessionId, text))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.stop', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      try {
-        return await withCore((c) => c.stop(sideChatId, sessionId))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.poll', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      const sinceSeq = args !== null && typeof args === 'object' ? args.sinceSeq : undefined
-      const sinceTextRev = args !== null && typeof args === 'object' ? args.sinceTextRev : undefined
-      try {
-        return await withCore((c) => c.poll(sideChatId, sessionId, sinceSeq, sinceTextRev))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.summarize', async (args) => {
-      const sessionId = sessionIdOf(args)
-      const sideChatId = sideChatIdOf(args)
-      if (sessionId === '' || sideChatId === '') {
-        return { ok: false, error: { code: 'no-session', message: '缺少 sessionId 或 sideChatId' } }
-      }
-      try {
-        return await withCore((c) => c.summarize(sideChatId, sessionId))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.recent', async (args) => {
-      const sessionId = sessionIdOf(args)
-      if (sessionId === '') return { ok: false, error: { code: 'no-session', message: '缺少 sessionId' } }
-      const limit = args !== null && typeof args === 'object' ? args.limit : undefined
-      try {
-        return await withCore((c) => c.recent(sessionId, limit))
-      } catch (error) {
-        return fail(error)
-      }
-    })
-
-    harness.handle('sideChat.ping', async () => ({ ok: true, pong: Date.now() }))
-
-    ctx.effect(() => () => {
-      if (core !== null) core.dispose()
-    }, 'dsh-side-chat: abort running streams')
-  }
+    ctx.effect(() => async () => {
+      const active = [...handles.values()]
+      handles.clear()
+      byParent.clear()
+      await Promise.allSettled(active.map(handle => handle.dispose()))
+    }, 'dsh-side-chat: dispose children')
+  },
 }

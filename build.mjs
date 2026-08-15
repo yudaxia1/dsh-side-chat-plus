@@ -14,7 +14,10 @@ const dist = join(root, 'dist')
 mkdirSync(dist, { recursive: true })
 
 const coreSource = readFileSync(join(root, 'src', 'core.mjs'), 'utf8')
-  .replace(/^export /gm, '')
+  // The source module ends with a named export block.  Removing only the
+  // `export` keyword would leave a comma-separated block statement in the
+  // dynamic host and produce an invalid dist/host.js.
+  .replace(/\nexport \{[\s\S]*\}\s*$/, '\n')
 const hostTemplate = readFileSync(join(root, 'src', 'host.template.js'), 'utf8')
 const clientSource = readFileSync(join(root, 'src', 'client.js'), 'utf8')
 
@@ -29,3 +32,5 @@ writeFileSync(join(dist, 'client.js'), clientSource)
 console.log('dsh-side-chat: 构建完成')
 console.log(`  dist/host.js   ${hostOutput.length} 字节`)
 console.log(`  dist/client.js ${clientSource.length} 字节`)
+
+await import('./build-formal.mjs')

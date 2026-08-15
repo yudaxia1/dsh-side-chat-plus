@@ -1,123 +1,79 @@
-# dsh-side-chat 架构说明
+# 架构
 
-> 阶段产物：第一阶段（调研）输出的架构说明。对应目标文档《实施顺序》第 1 条。
+## 1. 会话模型
 
-## 1. 目标与定位
+侧聊是 DSH 原生 child session：
 
-`dsh-side-chat` 是 DeepSeek Harness Web 的可独立加载动态 Cordis 插件，在主会话右侧提供
-一个**独立的侧边聊天空间**：
+- id 使用 `sidechat-` 前缀；
+- `origin: subagent`；
+- `parentSession` 指向主会话；
+- 继承主会话 cwd、agent preset、模型与原生运行能力；
+- transcript 与主会话完全独立；
+- workspace root sessionIds 不包含 child，所以左侧列表不会出现侧聊。
 
-- 主聊天与侧聊同时显示、同时工作；侧聊拥有独立的消息记录、流式生成状态与取消操作。
-- 侧聊消息绝不写入主会话记录；只有用户显式点击「插入主聊天输入框 / 总结到主聊天」才回传。
-- 侧聊是主会话的**子会话**（数据模型携带 `parentSessionId`），但**运行层面完全独立**：
-  每次侧聊发送走一条独立的 `ctx.llm.stream()` 调用，与主 Agent 循环互不干扰。
+同一主会话重新打开时，host 只恢复属于该 parent 的最新 retained child。它不会把 sibling 或其他主会话的 child 接入当前 UI。
 
-## 2. 关键接口调研结论（DSH 版本：@deepseek-ai/dsh 0.1.0-rc.6，源码分支 feat/goal-mode）
+## 2. 父上下文
 
-| 需求 | 采用的公开接口 | 说明 |
-|---|---|---|
-| 独立模型调用 | `ctx.get('llm').stream(GenerateOptions)` | 宿主侧直连模型流，与主会话无关；可对任意 provider/model 调用 |
-| 独立持久化 | `ctx.get('storageDomain').open({...})` → `table('chats')` KV | 落盘 `~/.dsh/storages/side_chat.json`（web profile 已挂载 storage-json），跨页面刷新与 DSH 重启存活 |
-| 读取主会话（锚点/相邻上下文/模型配置） | `ctx.get('sessionQuery').readSession(sessionId)` | 返回完整事件日志；锚点只取“最小必要快照”（单条消息 + 相邻用户提问） |
-| 模型配置继承 | 日志内最后一个 `request/header` 的 `config.provider/model`，兜底 `agentDefaultModel.currentSelection()` | 侧聊与主会话使用同一模型 |
-| 客户端 UI 落点 | `conversation.session.header.actions`（开关按钮）、`conversation.chat.assistant-actions`（每助手消息「在侧聊中询问」）、`shell.overlay`（右侧面板，根作用域、点击穿透默认关闭） | 全部是**追加型** slot，不替换任何内置 UI |
-| 回传主聊天输入框 | `props.inputActions.setDraft(text)`（会话标准 kit） | 只写草稿、不自动发送 |
-| 来源定位 | 锚点携带 `nodeKey`（`assistant-step:<turn>:<step>` / `input-message:<messageId>`），客户端 `querySelector('[data-chat-anchor-key=…]').scrollIntoView()` | 聊天节点渲染器自带 `data-chat-anchor-key` 属性 |
-| 独立取消 | 对 `llm.stream()` 返回的迭代器调用 `iterator.return()` | 见 §4 取消机制 |
+创建 child 时不发送父 transcript，也不伪造一条“以下是主会话全部内容”的用户消息。
 
-## 3. 数据模型
+host 只安装：
 
-```ts
-interface SideChat {
-  sideChatId: string          // sc_<随机>
-  parentSessionId: string     // 主会话 id（隔离键）
-  title: string
-  anchorType: 'blank' | 'message' | 'selection'
-  anchorId: string | null     // 锚点消息 id（blank 为 null）
-  anchorSnapshot: {           // 最小必要快照（不含整段主会话）
-    sourceLabel: string
-    messageId?: string
-    role?: 'user' | 'assistant'
-    seq?: number
-    time?: number
-    nodeKey?: string          // 主聊天 DOM 定位键
-    text: string              // 截断到 4000 字符
-    adjacent?: { text: string; seq: number }  // 助手消息锚点附带的“前面那条用户提问”
-  } | null
-  createdAt: number
-  updatedAt: number
-  status: 'idle' | 'streaming' | 'stopped' | 'error'
-  error?: string
-  messages: { id, role: 'user'|'assistant', text, time, seq }[]
-  textRev?: number            // 流式期间文本修订号（增量拉取用）
-}
+1. 一段带 section id 的关系提示，说明这是侧聊、父会话 id 与应按需获取上下文；
+2. `side_chat_context` 工具，根据 query 从 `sessionQuery` 读取父会话，做相关性排序、按轮次裁剪与字符上限控制。
+
+这使 child 实质上理解父会话，同时避免每次创建时复制全部内容。创造模式下仍由 DSH 原生 `cordis` preset 决定 system prompt、skills、tools 与知识；插件不覆盖它。
+
+## 3. Host 生命周期
+
+```text
+sideChat.open(parentSessionId)
+  ├─ 验证 parent，读取冷/热 session header
+  ├─ 查找 retained child，否则 agents.create(...)
+  ├─ session.options.origin = subagent
+  ├─ session.options.parentSession = parent
+  ├─ compose parent preset
+  └─ 返回 child session id（不产生 user message）
+
+sideChat.close(child, keep)
+  └─ flush + dispose，保留 durable session
+
+sideChat.close(child, delete)
+  ├─ dispose
+  ├─ 只解析并验证 child 的精确持久化路径
+  └─ 删除该 child artifact
 ```
 
-## 4. 运行架构
+RPC 失败遵循 DSH 判别联合：`{ ok:false, error:{ code:'internal', message, details:{} } }`。
 
-```
-┌─ 浏览器（code.client）────────────────────────────────────────────┐
-│ shell.overlay 面板（根作用域）                                      │
-│   ├─ 列表/消息/状态 ← host.call('sideChat.list|poll|send|stop|…')  │
-│   ├─ 流式期间 ~400ms 轮询 sideChat.poll(sinceSeq, sinceTextRev)    │
-│   └─ 共享 store（模块级 observable）                                │
-│ conversation.session.header.actions「侧聊」按钮                     │
-│   └─ 消费 store.pendingInsert → inputActions.setDraft(text)（回传） │
-│ conversation.chat.assistant-actions「在侧聊中询问」                 │
-│   └─ 读 window.getSelection() 区分“选中文字/整条消息” → create      │
-└──────────────┬─────────────────────────────────────────────────────┘
-               │ host.call（包私有 RPC，仅 JSON）
-┌──────────────┴─────────────────────────────────────────────────────┐
-│ 宿主进程（code.host，vm 沙箱）                                      │
-│ harness.handle('sideChat.*') → createSideChatCore(deps)            │
-│   ├─ storageDomain table('chats')：持久化（唯一事实源）             │
-│   ├─ sessionQuery：锚点/相邻上下文/最近消息/模型配置                 │
-│   └─ llm.stream()：每侧聊独立流（fire-and-forget）+ 运行句柄 Map    │
-└────────────────────────────────────────────────────────────────────┘
+## 4. 原生 UI 复用
+
+DSH 的 `conversation` entry 已经拥有完整 `ConversationRoot` 以及所有子 slots。client 在加载时保留该 component，并把 entry face 换成 `ParallelConversation`：
+
+```text
+ParallelConversation
+  ├─ main binding ── 原生 ConversationRoot
+  ├─ separator
+  └─ side BindingContext ── 原生 ConversationRoot
 ```
 
-### 4.1 取消机制（重要约束）
+side binding 只替换 `sessionId/useSession/useInput/useComposerBlock` 的数据源；`renderSlot`、`renderSlotChain`、全局 sessions/workspaces 和全部 DSH 子组件仍由原 entry 提供。插件没有消息 renderer、Markdown renderer 或输入栏实现。
 
-动态宿主沙箱（`node:vm` 新 realm）**没有 `AbortController` 全局**，而 DeepSeek 适配器内部
-使用 `AbortSignal.any([options.signal, …])`，鸭子类型的假信号会被拒绝。因此本插件的
-「停止生成」不依赖 AbortSignal，而是对 `llm.stream()` 返回的**异步迭代器**调用
-`iterator.return()`：该调用沿生成器链级联（llm runtime → 适配器生成器 → 适配器 finally
-的 `consumer.abort()`），最终取消底层 fetch。侧聊句柄记录 `{ stopped, iterator }`，
-stop/删除/卸载时统一 `abortRun()`。
+新 child 的原生状态是 blank。为了让侧聊输入框和已有主会话底部对齐，side binding 将 blank composer phase 稳定投影为 active，并用 WeakMap 保持快照引用；composer seat 使用 auto margin 吸收无消息时的剩余空间。输入框尺寸、ResizeObserver、sticky、草稿增长与接管面板仍由原生 `ConversationRoot` 控制。
 
-### 4.2 流式增量拉取
+## 5. 分栏与动作
 
-RPC 是 Client→Host 请求/响应，没有反向推送通道，因此流式期间客户端以 ~400ms 轮询。
-同一助手消息是“只增不改”的（seq 不变），所以 poll 携带两个游标：
+- 默认比例 50%；side 可调范围 25%–70%。
+- pointer drag 调宽；方向键每次 2%，按 Shift 每次 5%。
+- 隐藏只设置 client `hidden`，不 close child。
+- 恢复重用相同 `sideId`。
+- 打开/恢复用 DSH 原生消息气泡＋图标；隐藏用面板图标；关闭用 DSH 详情面板同风格 X。
+- 关闭才显示删除/保留 modal。
 
-- `sinceSeq`：只取 seq 更大的**新**消息；
-- `sinceTextRev`：修订号变化时把**当前最后一条非空助手消息**整体带回，客户端按 id 覆盖。
+## 6. 选区
 
-流式期间持久化节流为 2s 一次，终态（idle/stopped/error）必落盘。
+主列监听消息区 `mouseup`，排除 input、textarea 与 contenteditable。有效选区显示简约浮窗。点击后调用侧聊原生 `inputActions.setDraft`，不会提交消息，也不会向主 transcript 写入事件。
 
-## 5. 安全与权限边界（MVP）
+## 7. 已知 seam
 
-- 侧聊模型请求**无工具**：只有 `system`（固定分析助手指令 + 引用快照）与消息历史，
-  不可能执行命令、改文件、提交代码。
-- 引用只携带最小必要快照（截断 4000 字符 + 相邻一条用户提问），**不复制整段主会话**，
-  也不在每轮自动同步主会话。
-- 所有 RPC 均以 `parentSessionId` 做归属校验（`cross-session` 拒绝），多个主会话数据不串线。
-- 渲染采用 React 文本节点 + `white-space: pre-wrap`，**不解析 HTML**，杜绝注入。
-- 遵守 DSH 现有工作区/权限/Origin/Session/凭据隔离：插件不注册任何新权限面。
-
-## 6. 预计修改文件（实现清单）
-
-```
-dsh-side-chat/
-├── build.mjs               # 构建：core 内联进 host 模板
-├── package.json
-├── src/
-│   ├── core.mjs            # 纯宿主核心（可测）
-│   ├── host.template.js    # 沙箱宿主半边（RPC + domain + llm 接线）
-│   └── client.js           # 浏览器半边（三处 slot + 面板）
-├── dist/host.js, client.js # 构建产物（加载用）
-├── tests/                  # 单元/集成/冒烟测试
-└── docs/                   # 本文档 + 调研记录
-```
-
-不修改任何 DSH 源码 / npm 缓存 / 正在运行的 Profile；安装动作另行征询用户。
+当前 DSH 没有公开“为任意 session 渲染完整 conversation”的稳定 service。插件使用现有 slot registry `_core` 找到唯一原生 conversation entry，并从 `SessionProvider` 获取 BindingContext Provider。上游若改变该 seam，插件会 fail loud；禁止退回手搓聊天 UI。

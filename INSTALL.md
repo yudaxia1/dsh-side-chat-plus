@@ -1,50 +1,49 @@
-# 安装指南（dsh-side-chat）
+# 安装与验收
 
-本插件是 DeepSeek Harness 的**动态 Cordis 插件**：无需改代码、无需构建，由 agent 在
-会话内用 `cordis_define` + `cordis_run` 加载即可。构建产物在 `dist/`。
+本项目是 DSH 本地插件，不是 Codex plugin，不包含 `.codex-plugin/plugin.json`。
 
-## 方式 A：把产物交给 agent（推荐）
+## 安装
 
-在任意 DSH 会话里发给 agent（或把 `dist/host.js`、`dist/client.js` 文件贴给它）：
+在仓库目录执行：
 
-```
-请帮我加载 dsh-side-chat 插件：
-1. 读取本仓库 dist/host.js 作为 code.host、dist/client.js 作为 code.client；
-2. 用 cordis_define 创建插件（idPrefix 用 side，name 用 side-chat，
-   purpose 写一句功能说明）；
-3. 用 cordis_run 启动（mode: run）；
-4. 我会在界面上批准运行卡片的授权，批准后告诉我结果。
+```powershell
+npm test
+pnpm --dir E:\DSH_Work\dsh-src\deepseek-harness dsh plugin --profile web add E:\DSH_Work\dsh-side-chat
+pnpm --dir E:\DSH_Work\dsh-src\deepseek-harness dsh web
 ```
 
-agent 会自动完成定义与启动；你在运行卡片上点「允许」（可勾选"始终允许"）。
+同名插件已经安装时，将 `add` 改为：
 
-## 方式 B：手动加载
-
-把 `dist/host.js` / `dist/client.js` 的内容分别作为 `code.host` / `code.client` 提交：
-
-```
-cordis_define → plugin.kind: new, idPrefix: side, name: side-chat
-              → code.host = dist/host.js 内容
-              → code.client = dist/client.js 内容
-cordis_run    → mode: run
+```powershell
+pnpm --dir E:\DSH_Work\dsh-src\deepseek-harness dsh plugin --profile web update dsh-side-chat
 ```
 
-## 验证
+卸载：
 
-1. 会话头部出现「侧聊」按钮；
-2. 点头部按钮打开右侧面板；「＋」新建空白侧聊；
-3. 任意助手消息尾部出现「在侧聊中询问」按钮；
-4. 面板发送消息 → 流式回复出现 → 生成期间可「停止」；
-5. 「插入主聊天输入框」→ 主输入框出现内容但**不会自动发送**。
+```powershell
+pnpm --dir E:\DSH_Work\dsh-src\deepseek-harness dsh plugin --profile web remove dsh-side-chat
+```
 
-## 卸载
+## 运行要求
 
-`cordis_stop`（临时停用，保留版本）或 `cordis_undefine`（彻底删除）。
-停止后 DSH 原生聊天功能不受影响；面板与按钮随即消失。
+插件依赖 DSH 的 `sessions`、`sessionQuery`、`sessionPersistence`、`agents` 与 `agentPresets` 服务。缺少必需能力时会返回可见错误，不会回退到独立 LLM 调用或手写聊天页。
 
-## 注意事项
+## 手动验收
 
-- 插件是**会话级**的：每个会话需要各自加载一次（动态插件机制约束）。
-- 侧聊数据持久化在 `~/.dsh/storages/side_chat.json`（宿主进程级，重启存活）。
-- 不要手动改动 `~/.dsh`；如要把插件做成**全局安装**（web profile bundle），
-  请先与维护者确认安装方案（见 README「后续清单」）。
+1. 打开已有主会话，确认 header 出现消息气泡＋图标。
+2. 打开侧聊，确认主对话与侧聊并排，两个输入框底线和高度一致。
+3. 拖动分隔线，确认宽度比例变化；用方向键验证键盘调宽。
+4. 点击面板图标隐藏，确认主对话铺满；点击主 header 图标恢复，确认仍是同一个 child。
+5. 打开左侧列表，确认只出现主会话，不出现 `sidechat-*`。
+6. 检查侧聊的消息、输入、模型、权限、审批、问题与附件均为 DSH 原生 UI。
+7. 选中主消息文字，确认出现“在侧聊中对话”；点击后只预填侧聊草稿，不自动发送。
+8. 点击 X，确认出现“取消 / 保留对话 / 删除并关闭”，并明确提示默认删除且不存档。
+9. 新 child 的第一条 transcript 不得包含整段父会话；需要父上下文时由 `side_chat_context` 按需读取。
+
+自动检查：
+
+```powershell
+npm test
+```
+
+自动检查不是最终视觉证明；输入框对齐、分栏拖拽与关闭弹窗仍需在真实 DSH Web 验收。
