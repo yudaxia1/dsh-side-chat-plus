@@ -53,7 +53,7 @@ function storedPreferences() {
   }
 }
 
-const initialState = Object.freeze({ open: false, hidden: false, busy: false, dialog: false, sideRatio: 50, parentId: null, sideId: null, anchorText: '', error: '', ...storedPreferences() })
+const initialState = Object.freeze({ sides: new Map(), busy: false, dialog: null, sideRatio: 50, error: '', errorParentId: null, ...storedPreferences() })
 let uiState = initialState
 const subscribers = new Set()
 let sessionsService = null
@@ -66,9 +66,26 @@ function update(patch) {
   for (const subscriber of subscribers) subscriber()
 }
 
+function setSide(parentId, side) {
+  const sides = new Map(uiState.sides)
+  sides.set(parentId, Object.freeze(side))
+  update({ sides })
+}
+
+function patchSide(parentId, patch) {
+  const side = uiState.sides.get(parentId)
+  if (side !== undefined) setSide(parentId, { ...side, ...patch })
+}
+
+function findSideOwner(state, sideId) {
+  for (const [parentId, side] of state.sides) {
+    if (side.sideId === sideId) return { parentId, side }
+  }
+  return undefined
+}
+
 function updatePreferences(patch) {
   const next = { ...patch }
-  if (next.enabled === false) next.hidden = true
   update(next)
   try {
     globalThis.localStorage?.setItem(PREFERENCE_KEY, JSON.stringify({
@@ -105,28 +122,31 @@ async function rpc(method, input) {
 
 async function openSide(parentId, anchorText = '') {
   if (!uiState.enabled || uiState.busy) return
-  if (uiState.open && uiState.parentId === parentId && uiState.sideId !== null) {
-    update({ hidden: false, anchorText, error: '' })
+  if (uiState.sides.has(parentId)) {
+    patchSide(parentId, { hidden: false, anchorText })
+    update({ error: '', errorParentId: null })
     return
   }
-  update({ busy: true, error: '' })
+  update({ busy: true, error: '', errorParentId: null })
   try {
     const result = await rpc('sideChat.open', { parentSessionId: parentId, anchorText, preset: uiState.preset })
-    update({ open: true, hidden: false, dialog: false, busy: false, parentId, sideId: result.sessionId, anchorText })
+    setSide(parentId, { sideId: result.sessionId, hidden: false, anchorText })
+    update({ dialog: null, busy: false })
   } catch (error) {
-    update({ busy: false, error: error instanceof Error ? error.message : String(error) })
+    update({ busy: false, error: error instanceof Error ? error.message : String(error), errorParentId: parentId })
   }
 }
 
-async function finishClose(mode) {
-  const sideId = uiState.sideId
-  if (sideId === null || uiState.busy) return
-  update({ busy: true, error: '' })
+async function finishClose(mode, parentId, sideId) {
+  if (uiState.sides.get(parentId)?.sideId !== sideId || uiState.busy) return
+  update({ busy: true, error: '', errorParentId: null })
   try {
     await rpc('sideChat.close', { sessionId: sideId, mode })
-    update({ ...initialState, enabled: uiState.enabled, preset: uiState.preset })
+    const sides = new Map(uiState.sides)
+    sides.delete(parentId)
+    update({ sides, busy: false, dialog: null })
   } catch (error) {
-    update({ busy: false, dialog: false, error: error instanceof Error ? error.message : String(error) })
+    update({ busy: false, dialog: null, error: error instanceof Error ? error.message : String(error), errorParentId: parentId })
   }
 }
 
@@ -171,11 +191,11 @@ function IconAction({ label, children, onClick, disabled }) {
 function HeaderAction({ sessionId }) {
   const state = useSideState()
   if (!state.enabled) return null
-  if (sessionId === state.sideId) return null
-  if (state.open) {
-    if (sessionId !== state.parentId) return null
-    if (!state.hidden) return null
-    return h(IconAction, { label: '显示侧聊', onClick: () => update({ hidden: false }) }, h(SideChatIcon))
+  if (findSideOwner(state, sessionId) !== undefined) return null
+  const side = state.sides.get(sessionId)
+  if (side !== undefined) {
+    if (!side.hidden) return null
+    return h(IconAction, { label: '显示侧聊', onClick: () => patchSide(sessionId, { hidden: false }) }, h(SideChatIcon))
   }
   return h(IconAction, {
     label: state.busy ? '正在开启侧聊' : '打开侧聊',
@@ -210,13 +230,14 @@ function SettingsSection() {
 
 function SideUtilities({ sessionId }) {
   const state = useSideState()
-  if (sessionId !== state.sideId) return null
+  const owner = findSideOwner(state, sessionId)
+  if (owner === undefined) return null
   return h(React.Fragment, null,
-    h(IconAction, { label: '隐藏侧聊', onClick: () => update({ hidden: true }) }, h(PanelRightIcon)),
+    h(IconAction, { label: '隐藏侧聊', onClick: () => patchSide(owner.parentId, { hidden: true }) }, h(PanelRightIcon)),
     h(IconAction, {
       label: '关闭侧聊',
       disabled: state.busy,
-      onClick: () => update({ dialog: true }),
+      onClick: () => update({ dialog: { parentId: owner.parentId, sideId: sessionId } }),
     }, h(CloseIcon)),
   )
 }
@@ -246,25 +267,28 @@ function SideNativeConversation({ kit, providedInfo }) {
   })
 }
 
-function CloseDialog() {
+function CloseDialog({ parentId, sideId }) {
   const state = useSideState()
-  if (!state.dialog) return null
+  if (state.dialog?.parentId !== parentId || state.dialog.sideId !== sideId) return null
   return ReactDOM.createPortal(h('div', { className: 'dsh-sc-modal-backdrop', role: 'presentation', onMouseDown: event => {
-    if (event.target === event.currentTarget && !state.busy) update({ dialog: false })
+    if (event.target === event.currentTarget && !state.busy) update({ dialog: null })
   } },
   h('div', { className: 'dsh-sc-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dsh-sc-close-title' },
     h('h3', { id: 'dsh-sc-close-title' }, '关闭侧聊'),
     h('p', null, '默认会删除这段侧聊，且无法恢复。如果需要稍后继续，请选择“保留对话”。'),
     h('div', { className: 'dsh-sc-modal-actions' },
-      h(ActionButton, { disabled: state.busy, onClick: () => update({ dialog: false }) }, '取消'),
-      h(ActionButton, { disabled: state.busy, onClick: () => finishClose('keep') }, '保留对话'),
-      h(ActionButton, { disabled: state.busy, className: 'dsh-sc-danger', onClick: () => finishClose('delete') }, state.busy ? '正在删除…' : '删除并关闭'),
+      h(ActionButton, { disabled: state.busy, onClick: () => update({ dialog: null }) }, '取消'),
+      h(ActionButton, { disabled: state.busy, onClick: () => finishClose('keep', parentId, sideId) }, '保留对话'),
+      h(ActionButton, { disabled: state.busy, className: 'dsh-sc-danger', onClick: () => finishClose('delete', parentId, sideId) }, state.busy ? '正在删除…' : '删除并关闭'),
     ),
   )), document.body)
 }
 
 function ParallelConversation(props) {
   const state = useSideState()
+  const sideState = state.sides.get(props.sessionId)
+  const ownsSide = state.enabled && sideState !== undefined
+  const sideId = sideState?.sideId ?? null
   const splitRef = React.useRef(null)
   const mainRef = React.useRef(null)
   const [selection, setSelection] = React.useState(null)
@@ -278,11 +302,10 @@ function ParallelConversation(props) {
   const BindingProvider = providerProbe.type
 
   React.useEffect(() => {
-    if (!state.enabled || !state.open || state.sideId === null) {
+    if (!state.enabled || !ownsSide) {
       setSideInfo(undefined)
       return undefined
     }
-    const sideId = state.sideId
     let cancelled = false
     let attempts = 0
     const connect = () => {
@@ -293,35 +316,35 @@ function ParallelConversation(props) {
         void session.open().then(() => {
           if (!cancelled) setSideInfo(info)
         }).catch(error => {
-          if (!cancelled) update({ error: error instanceof Error ? error.message : String(error) })
+          if (!cancelled) update({ error: error instanceof Error ? error.message : String(error), errorParentId: props.sessionId })
         })
         return
       }
       attempts += 1
       if (attempts < 40) setTimeout(connect, 100)
-      else update({ error: '无法打开侧聊的原生会话窗口' })
+      else update({ error: '无法打开侧聊的原生会话窗口', errorParentId: props.sessionId })
     }
     connect()
     return () => { cancelled = true }
-  }, [state.enabled, state.open, state.sideId])
+  }, [state.enabled, ownsSide, sideId, props.sessionId])
 
   React.useEffect(() => {
-    if (!state.enabled || !state.open || state.sideId === null || state.anchorText === '') return
+    if (!state.enabled || !ownsSide || sideId === null || sideState.anchorText === '') return
     let cancelled = false
     let attempts = 0
     const insertReference = () => {
       if (cancelled) return
-      const info = sessionsService?.provideInfo?.(state.sideId)
+      const info = sessionsService?.provideInfo?.(sideId)
       const input = info?.hooks?.input?.getSnapshot?.()
-      const scope = sessionsService?.scope?.(state.sideId)
-      const text = state.anchorText
+      const scope = sessionsService?.scope?.(sideId)
+      const text = sideState.anchorText
       const label = text.replaceAll(/\s+/g, ' ').slice(0, 48) + (text.replaceAll(/\s+/g, ' ').length > 48 ? '…' : '')
       const applied = input !== undefined && scope !== undefined && scope.bail(scope, 'slash/input-insert-reference', {
         reference: { source: 'side-chat-selection', ref: text, label, clipboardText: text },
         span: { start: 0, end: 0, draftRev: input.draftRev },
       }) === true
       if (applied) {
-        update({ anchorText: '' })
+        patchSide(props.sessionId, { anchorText: '' })
         return
       }
       attempts += 1
@@ -329,7 +352,12 @@ function ParallelConversation(props) {
     }
     insertReference()
     return () => { cancelled = true }
-  }, [state.enabled, state.open, state.sideId, state.anchorText])
+  }, [state.enabled, ownsSide, sideId, sideState?.anchorText, props.sessionId])
+
+  React.useEffect(() => {
+    setSelection(null)
+    if (state.dialog !== null && state.dialog.parentId !== props.sessionId) update({ dialog: null })
+  }, [props.sessionId, state.dialog?.parentId])
 
   React.useEffect(() => {
     if (!state.enabled) {
@@ -355,7 +383,7 @@ function ParallelConversation(props) {
     }
     root.addEventListener('mouseup', onMouseUp)
     return () => root.removeEventListener('mouseup', onMouseUp)
-  }, [state.enabled])
+  }, [state.enabled, props.sessionId])
 
   const selectionButton = selection === null ? null : h('div', {
     className: 'dsh-sc-selection',
@@ -392,7 +420,7 @@ function ParallelConversation(props) {
     const delta = event.shiftKey ? 5 : 2
     update({ sideRatio: Math.min(70, Math.max(25, state.sideRatio + (event.key === 'ArrowLeft' ? delta : -delta))) })
   }
-  const divider = state.open && !state.hidden
+  const divider = ownsSide && !sideState.hidden
     ? h('div', {
       className: 'dsh-sc-resizer',
       role: 'separator',
@@ -407,12 +435,13 @@ function ParallelConversation(props) {
     })
     : null
   let side = null
-  if (state.open && !state.hidden) {
+  if (ownsSide && !sideState.hidden) {
+    const currentSideInfo = sideInfo?.sessionId === sideId ? sideInfo : undefined
     side = h('section', { className: 'dsh-sc-column dsh-sc-column-side', 'data-side-chat-side': '' },
-      sideInfo === undefined
+      currentSideInfo === undefined
         ? h('div', { className: 'dsh-sc-error' }, '正在连接原生侧聊会话…')
-        : h(BindingProvider, { value: sideInfo, key: state.sideId },
-          h(SideNativeConversation, { kit: props, providedInfo: sideInfo }),
+        : h(BindingProvider, { value: currentSideInfo, key: sideId },
+          h(SideNativeConversation, { kit: props, providedInfo: currentSideInfo }),
         ),
     )
   }
@@ -424,8 +453,8 @@ function ParallelConversation(props) {
       style: { '--dsh-sc-side-width': `${state.sideRatio}%` },
     }, main, divider, side),
     selectionButton,
-    state.error === '' ? null : h('div', { className: 'dsh-sc-error' }, state.error),
-    h(CloseDialog),
+    state.error === '' || state.errorParentId !== props.sessionId ? null : h('div', { className: 'dsh-sc-error' }, state.error),
+    ownsSide ? h(CloseDialog, { parentId: props.sessionId, sideId }) : null,
   )
 }
 

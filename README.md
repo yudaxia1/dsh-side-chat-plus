@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="release/dsh-side-chat-1.1.0.tgz"><img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-2563eb?style=flat-square"></a>
+  <a href="release/dsh-side-chat-1.1.2.tgz"><img alt="Version 1.1.2" src="https://img.shields.io/badge/version-1.1.2-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111827?style=flat-square"></a>
-  <img alt="Tests 15 passing" src="https://img.shields.io/badge/tests-15%20passing-16a34a?style=flat-square">
+  <img alt="Tests 17 passing" src="https://img.shields.io/badge/tests-17%20passing-16a34a?style=flat-square">
   <img alt="DeepSeek Harness plugin" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-0ea5e9?style=flat-square">
 </p>
 
@@ -74,7 +74,7 @@ client 保留 DSH 已注册的原生 conversation component，只把它放进两
 下载仓库 `release/` 中已经构建好的插件，无需在安装阶段运行构建脚本：
 
 ```powershell
-dsh plugin --profile web add .\release\dsh-side-chat-1.1.0.tgz
+dsh plugin --profile web add .\release\dsh-side-chat-1.1.2.tgz
 ```
 
 ### 从源码构建

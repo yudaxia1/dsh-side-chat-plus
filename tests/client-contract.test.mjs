@@ -43,7 +43,7 @@ test('settings expose enablement and native preset choices', () => {
 test('side session uses framework BindingContext provider and arbitrary provideInfo', () => {
   assert.match(client, /SessionProvider\(\{ empty:/)
   assert.match(client, /sessionsService\?\.provideInfo\?\./)
-  assert.match(client, /h\(BindingProvider, \{ value: sideInfo/)
+  assert.match(client, /h\(BindingProvider, \{ value: currentSideInfo/)
   assert.match(client, /sessionsService\?\.binding\?\.\(sideId\)\?\.session/)
   assert.match(client, /session\.open\(\)/)
   assert.match(client, /source\.subscribe\(listener\)/)
@@ -63,4 +63,22 @@ test('parallel shell aligns, resizes, hides and restores the native side convers
   assert.match(client, /name: 'conversation\.session\.header\.utilities'/)
   assert.match(client, /id: 'side-chat-controls'/)
   assert.match(client, /ReactDOM\.createPortal/)
+})
+
+test('side pane is scoped to its owning main session', () => {
+  assert.match(client, /sides: new Map\(\)/)
+  assert.match(client, /const sideState = state\.sides\.get\(props\.sessionId\)/)
+  assert.match(client, /const ownsSide = state\.enabled && sideState !== undefined/)
+  assert.match(client, /const sideId = sideState\?\.sideId \?\? null/)
+  assert.match(client, /const divider = ownsSide && !sideState\.hidden/)
+  assert.match(client, /if \(ownsSide && !sideState\.hidden\)/)
+})
+
+test('multiple main conversations retain independent side sessions', () => {
+  assert.match(client, /const sides = new Map\(uiState\.sides\)/)
+  assert.match(client, /sides\.set\(parentId, Object\.freeze\(side\)\)/)
+  assert.match(client, /const side = state\.sides\.get\(sessionId\)/)
+  assert.match(client, /function findSideOwner\(state, sideId\)/)
+  assert.match(client, /finishClose\('keep', parentId, sideId\)/)
+  assert.match(client, /sideInfo\?\.sessionId === sideId/)
 })
