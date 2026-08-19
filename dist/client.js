@@ -9,9 +9,10 @@ const CSS = `
 .dsh-sc-column-side:not(:has([data-slot="conversation.composer.dock"]>*)){padding-bottom:24px}
 .dsh-sc-column>[data-phase]{flex:1;min-height:0}
 .dsh-sc-column-side [data-conversation-scroll]>[data-composer-seat]{margin-top:auto}
-.dsh-sc-resizer{position:relative;z-index:40;flex:0 0 7px;margin:0 -3px;cursor:col-resize;touch-action:none;outline:none}
+.dsh-sc-resizer{position:relative;z-index:1;flex:0 0 7px;margin:0 -3px;cursor:col-resize;touch-action:none;outline:none}
 .dsh-sc-resizer::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--dsw-alias-border-l2);transition:width .12s,background .12s}
 .dsh-sc-resizer:hover::after,.dsh-sc-resizer:focus-visible::after{left:2px;width:3px;background:var(--dsw-alias-state-business-primary)}
+body:has([role="dialog"],[aria-modal="true"],[data-modal],[data-overlay],[data-radix-popper-content-wrapper]) .dsh-sc-resizer{pointer-events:none}
 .dsh-sc-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:5px 10px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer}
 .dsh-sc-action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-sc-action:disabled{opacity:.5;cursor:default}
@@ -60,6 +61,7 @@ let sessionsService = null
 let inputTriggersService = null
 let NativeConversationRoot = null
 let projectedSideSessions = new WeakMap()
+let projectedSideProvideInfos = new WeakMap()
 
 function update(patch) {
   uiState = Object.freeze({ ...uiState, ...patch })
@@ -242,18 +244,37 @@ function SideUtilities({ sessionId }) {
   )
 }
 
+function projectSideSession(value) {
+  if (value?.composerPhase !== 'blank' || typeof value !== 'object') return value
+  const cached = projectedSideSessions.get(value)
+  if (cached !== undefined) return cached
+  const projected = Object.freeze({ ...value, composerPhase: 'active' })
+  projectedSideSessions.set(value, projected)
+  return projected
+}
+
+function projectSideProvideInfo(providedInfo) {
+  const cached = projectedSideProvideInfos.get(providedInfo)
+  if (cached !== undefined) return cached
+  const source = providedInfo.hooks.session
+  const projected = Object.freeze({
+    ...providedInfo,
+    hooks: Object.freeze({
+      ...providedInfo.hooks,
+      session: Object.freeze({
+        subscribe: listener => source.subscribe(listener),
+        getSnapshot: () => projectSideSession(source.getSnapshot()),
+      }),
+    }),
+  })
+  projectedSideProvideInfos.set(providedInfo, projected)
+  return projected
+}
+
 function SideNativeConversation({ kit, providedInfo }) {
-  const projectSession = value => {
-    if (value?.composerPhase !== 'blank' || typeof value !== 'object') return value
-    const cached = projectedSideSessions.get(value)
-    if (cached !== undefined) return cached
-    const projected = Object.freeze({ ...value, composerPhase: 'active' })
-    projectedSideSessions.set(value, projected)
-    return projected
-  }
   const useSession = selector => useObservable(
     providedInfo?.hooks?.session,
-    value => selector(projectSession(value)),
+    selector,
     undefined,
   )
   const useInput = selector => useObservable(providedInfo?.hooks?.input, selector, undefined)
@@ -437,11 +458,12 @@ function ParallelConversation(props) {
   let side = null
   if (ownsSide && !sideState.hidden) {
     const currentSideInfo = sideInfo?.sessionId === sideId ? sideInfo : undefined
+    const projectedSideInfo = currentSideInfo === undefined ? undefined : projectSideProvideInfo(currentSideInfo)
     side = h('section', { className: 'dsh-sc-column dsh-sc-column-side', 'data-side-chat-side': '' },
-      currentSideInfo === undefined
+      projectedSideInfo === undefined
         ? h('div', { className: 'dsh-sc-error' }, '正在连接原生侧聊会话…')
-        : h(BindingProvider, { value: currentSideInfo, key: sideId },
-          h(SideNativeConversation, { kit: props, providedInfo: currentSideInfo }),
+        : h(BindingProvider, { value: projectedSideInfo, key: sideId },
+          h(SideNativeConversation, { kit: props, providedInfo: projectedSideInfo }),
         ),
     )
   }
@@ -534,6 +556,7 @@ return {
       inputTriggersService = null
       releaseSelectionSource()
       projectedSideSessions = new WeakMap()
+      projectedSideProvideInfos = new WeakMap()
       uiState = initialState
     }, 'dsh-side-chat: client state')
   },

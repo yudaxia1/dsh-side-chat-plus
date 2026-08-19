@@ -43,10 +43,13 @@ test('settings expose enablement and native preset choices', () => {
 test('side session uses framework BindingContext provider and arbitrary provideInfo', () => {
   assert.match(client, /SessionProvider\(\{ empty:/)
   assert.match(client, /sessionsService\?\.provideInfo\?\./)
-  assert.match(client, /h\(BindingProvider, \{ value: currentSideInfo/)
+  assert.match(client, /h\(BindingProvider, \{ value: projectedSideInfo/)
   assert.match(client, /sessionsService\?\.binding\?\.\(sideId\)\?\.session/)
   assert.match(client, /session\.open\(\)/)
   assert.match(client, /source\.subscribe\(listener\)/)
+  assert.match(client, /function projectSideProvideInfo/)
+  assert.match(client, /getSnapshot: \(\) => projectSideSession\(source\.getSnapshot\(\)\)/)
+  assert.match(client, /composerPhase: 'active'/)
 })
 
 test('parallel shell aligns, resizes, hides and restores the native side conversation', () => {
@@ -56,10 +59,13 @@ test('parallel shell aligns, resizes, hides and restores the native side convers
   assert.match(client, /aria-label': '调整主对话与侧聊宽度'/)
   assert.match(client, /sideRatio/)
   assert.match(client, /label: '隐藏侧聊'/)
+  assert.match(client, /label: '关闭侧聊'/)
   assert.match(client, /label: '显示侧聊'/)
   assert.match(client, /function SideChatIcon/)
   assert.match(client, /Same message-plus glyph used by DSH/)
   assert.doesNotMatch(client, /dsh-sc-side-actions/)
+  assert.match(client, /\.dsh-sc-resizer\{position:relative;z-index:1;/)
+  assert.match(client, /body:has\(\[role="dialog"\]/)
   assert.match(client, /name: 'conversation\.session\.header\.utilities'/)
   assert.match(client, /id: 'side-chat-controls'/)
   assert.match(client, /ReactDOM\.createPortal/)
