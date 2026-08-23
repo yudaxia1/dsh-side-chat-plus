@@ -54,9 +54,13 @@
 
 要求：Node.js 22 或更高版本，以及能够加载 Web 插件的 DeepSeek Harness。
 
-下载仓库 `release/` 中已经构建好的插件；安装时不需要再次运行构建脚本：
+下载已经构建好的插件：优先从 [GitHub Releases](https://github.com/KarlOfLaw/dsh-side-chat/releases/latest) 获取最新包，也可以直接使用仓库内 `release/` 目录；安装时不需要再次运行构建脚本：
 
 ```powershell
+# 从 GitHub Release 下载后：
+dsh plugin --profile web add .\dsh-side-chat-1.1.2.tgz
+
+# 或使用仓库内副本：
 dsh plugin --profile web add .\release\dsh-side-chat-1.1.2.tgz
 ```
 
