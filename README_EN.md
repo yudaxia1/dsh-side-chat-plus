@@ -54,9 +54,13 @@ The main conversation and side chat use the same native DSH interface. The divid
 
 Requirements: Node.js 22 or later and a DeepSeek Harness installation that can load Web plugins.
 
-Download the prebuilt package from `release/`. Installation does not need to run the build again:
+Download the prebuilt package from [GitHub Releases](https://github.com/KarlOfLaw/dsh-side-chat/releases/latest), or use the copy in the repository's `release/` directory. Installation does not need to run the build again:
 
 ```powershell
+# After downloading from GitHub Releases:
+dsh plugin --profile web add .\dsh-side-chat-1.1.2.tgz
+
+# Or use the in-repo copy:
 dsh plugin --profile web add .\release\dsh-side-chat-1.1.2.tgz
 ```
 
