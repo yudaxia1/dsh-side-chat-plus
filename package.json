@@ -3,6 +3,14 @@
   "version": "1.1.2",
   "description": "DeepSeek Harness 原生并排侧聊：归档独立会话、按需主会话上下文、原生会话 UI 与可配置生命周期。",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KarlOfLaw/dsh-side-chat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KarlOfLaw/dsh-side-chat/issues"
+  },
+  "homepage": "https://github.com/KarlOfLaw/dsh-side-chat#readme",
   "type": "module",
   "main": "./dist/formal-host.mjs",
   "files": [
