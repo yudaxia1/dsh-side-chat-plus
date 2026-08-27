@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="release/dsh-side-chat-1.1.3.tgz"><img alt="Version 1.1.3" src="https://img.shields.io/badge/version-1.1.3-2563eb?style=flat-square"></a>
+  <a href="release/dsh-side-chat-1.2.0.tgz"><img alt="Version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111827?style=flat-square"></a>
-  <img alt="Tests 21 passing" src="https://img.shields.io/badge/tests-21%20passing-16a34a?style=flat-square">
+  <img alt="Tests 24 passing" src="https://img.shields.io/badge/tests-24%20passing-16a34a?style=flat-square">
   <img alt="DeepSeek Harness plugin" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-0ea5e9?style=flat-square">
 </p>
 
@@ -33,7 +33,7 @@
 
 ## 先看这里
 
-- **想直接使用：** 下载 [`release/dsh-side-chat-1.1.3.tgz`](release/dsh-side-chat-1.1.3.tgz)，按下方命令安装。
+- **想直接使用：** 下载 [`release/dsh-side-chat-1.2.0.tgz`](release/dsh-side-chat-1.2.0.tgz)，按下方命令安装。
 - **想参与开发：** 克隆仓库后运行 `npm test`，它会构建插件并执行全部回归测试。
 - **它解决什么：** 在不离开主会话的情况下，打开一个可以独立提问、调用工具和修改工作区的原生 DSH 会话。
 - **最重要的边界：** 主会话与侧聊共享工作区，但 transcript 相互独立；侧聊不会自动复制整段主对话。
@@ -58,10 +58,10 @@
 
 ```powershell
 # 从 GitHub Release 下载后：
-dsh plugin --profile web add .\dsh-side-chat-1.1.3.tgz
+dsh plugin --profile web add .\dsh-side-chat-1.2.0.tgz
 
 # 或使用仓库内副本：
-dsh plugin --profile web add .\release\dsh-side-chat-1.1.3.tgz
+dsh plugin --profile web add .\release\dsh-side-chat-1.2.0.tgz
 ```
 
 从希望 Agent 操作的工程目录启动 DSH：
@@ -105,7 +105,7 @@ pnpm --dir $DshSource dsh plugin --profile web update dsh-side-chat
 2. 侧聊会立即显示完整原生 header 和输入框；无需先发送第一条消息，隐藏与关闭按钮已经位于原生 header 右上角。
 3. 在侧聊中像普通 DSH 会话一样选择模型、输入消息、使用附件、工具和审批流程。
 4. 拖动中间分隔线调整比例；聚焦分隔线后可用方向键微调，按住 `Shift` 可加速调整。
-5. 在主消息中选中文字，点击“在侧聊中对话”，选区会作为可删除的引用 chip 进入侧聊输入框。
+5. 在主消息中选中文字，点击“引用到侧聊”，输入框上方会显示可删除的引用提示；输入框草稿本身保持为空，引用只在发送时加入侧聊请求。
 6. 点击侧聊 header 的面板图标可隐藏；主 header 的消息气泡图标会恢复同一个侧聊。
 7. 点击关闭按钮后选择“保留对话”或“删除并关闭”。
 
@@ -115,13 +115,14 @@ pnpm --dir $DshSource dsh plugin --profile web update dsh-side-chat
 - “保留对话”会释放当前 Agent，但保留磁盘会话；下次以相同模式打开时会恢复最近保留的侧聊。
 - “删除并关闭”只允许删除插件创建的侧聊，并要求当前存储后端支持安全的逐会话删除；不满足条件时会明确报错并保留会话。
 - 打开设置、插件市场或其他 DSH 原生弹窗时，分隔条会让出指针交互，不会覆盖或拦截弹窗。
+- 与 Better Sidebar 同时安装时，两种右侧并行面板互斥：打开侧聊会收起 Better Sidebar，打开 Better Sidebar 会隐藏侧聊；未安装 Better Sidebar 时仍使用正常的 DSH 原生 header 布局。
 - 可在 DSH 设置的“侧边聊天”页面启用或停用插件，并选择新侧聊默认使用的原生 Agent 模式。
 
 ## 会话与数据
 
 第一次打开时，插件创建一个带 `parentSession` 的真实 DSH Session，并立即将它归档，因此它不会出现在 workspace 左侧会话列表。保留过的同模式侧聊会在下次打开时恢复，而不是重新创建空会话。
 
-插件不会把主 transcript 复制到侧聊。选中的文字只作为原生输入框引用加入草稿；当侧聊确实需要更多背景时，可以通过 `side_chat_context` 按需读取有界、相关且按时间排序的父会话片段。
+插件不会把主 transcript 复制到侧聊。选中的文字保存在侧聊自己的引用状态中，不写入原生输入框草稿；只有用户发送消息时才会投影进该次侧聊请求。当侧聊确实需要更多背景时，可以通过 `side_chat_context` 按需读取有界、相关且按时间排序的父会话片段。
 
 主会话与侧聊共享同一个 workspace。侧聊中的文件修改、命令执行、审批和其他工具副作用都是真实的；隐藏、保留或关闭面板不会撤销这些操作。
 
@@ -135,7 +136,8 @@ pnpm --dir $DshSource dsh plugin --profile web update dsh-side-chat
 | **按需理解主对话** | 不复制主 transcript；需要背景时，通过 `side_chat_context` 检索有界、相关的父会话片段。 |
 | **真正并排** | 只增加最小 split shell；分隔条支持拖拽和方向键微调，侧聊占比限制在 25%–70%。 |
 | **不污染会话列表** | 新侧聊立即归档，不出现在 workspace 左侧列表中。 |
-| **选文即问** | 选中主消息文字后出现“在侧聊中对话”，引用以可删除 chip 进入原生输入框。 |
+| **选文即问** | 选中主消息文字后出现“引用到侧聊”；引用可预览、可删除，且不会在原生输入框中残留 `@` 或隐藏文本。 |
+| **兼容 Better Sidebar** | 两种右侧并行面板自动互斥，并对齐 header 控件；没有安装 Better Sidebar 时保持正常显示。 |
 | **可隐藏、可恢复、可删除** | 隐藏只收起面板；保留后可以恢复，关闭时也可选择安全删除。 |
 | **原生模式与模型** | 新侧聊默认标准模式，可选 PTC、极简或创造模式；模型选择器保持 DSH 原生行为。 |
 

@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="release/dsh-side-chat-1.1.3.tgz"><img alt="Version 1.1.3" src="https://img.shields.io/badge/version-1.1.3-2563eb?style=flat-square"></a>
+  <a href="release/dsh-side-chat-1.2.0.tgz"><img alt="Version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111827?style=flat-square"></a>
-  <img alt="Tests 21 passing" src="https://img.shields.io/badge/tests-21%20passing-16a34a?style=flat-square">
+  <img alt="Tests 24 passing" src="https://img.shields.io/badge/tests-24%20passing-16a34a?style=flat-square">
   <img alt="DeepSeek Harness plugin" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-0ea5e9?style=flat-square">
 </p>
 
@@ -33,7 +33,7 @@
 
 ## Start Here
 
-- **Just use it:** download [`release/dsh-side-chat-1.1.3.tgz`](release/dsh-side-chat-1.1.3.tgz) and install it with the command below.
+- **Just use it:** download [`release/dsh-side-chat-1.2.0.tgz`](release/dsh-side-chat-1.2.0.tgz) and install it with the command below.
 - **Develop it:** clone the repository, run `npm test`, and let the same command build the plugin and run the regression suite.
 - **What it solves:** open a native DSH session that can ask questions, use tools, and work in the project without leaving the main conversation.
 - **The key boundary:** the main session and side chat share a workspace but keep independent transcripts; the side chat does not automatically copy the full parent conversation.
@@ -58,10 +58,10 @@ Download the prebuilt package from [GitHub Releases](https://github.com/KarlOfLa
 
 ```powershell
 # After downloading from GitHub Releases:
-dsh plugin --profile web add .\dsh-side-chat-1.1.3.tgz
+dsh plugin --profile web add .\dsh-side-chat-1.2.0.tgz
 
 # Or use the in-repo copy:
-dsh plugin --profile web add .\release\dsh-side-chat-1.1.3.tgz
+dsh plugin --profile web add .\release\dsh-side-chat-1.2.0.tgz
 ```
 
 Start DSH from the project that you want the Agent to work in:
@@ -105,7 +105,7 @@ When the plugin is registered from its source directory, DSH loads `dist/formal-
 2. The side chat immediately shows its complete native header and composer. The hide and close controls are already in the native header before the first message is sent.
 3. Use it like a normal DSH conversation: select a model, send messages, attach files, use tools, and handle approvals.
 4. Drag the divider to adjust the pane ratio. Focus it and use the arrow keys for fine adjustment; hold `Shift` for larger steps.
-5. Select text in a main message and click "Ask in side chat" to place it in the side composer as a removable quote chip.
+5. Select text in a main message and click "Quote in side chat." A removable reference indicator appears above the composer while the native draft itself stays empty; the quote is added only when the message is sent.
 6. Use the panel icon in the side header to hide the pane. The message-bubble icon in the main header restores the same side chat.
 7. Click the close icon and choose either "Retain conversation" or "Delete and close."
 
@@ -115,13 +115,14 @@ When the plugin is registered from its source directory, DSH loads `dist/formal-
 - "Retain conversation" releases the active Agent but keeps the session on disk. Opening the same mode later restores the most recently retained side chat.
 - "Delete and close" can delete only sessions created by this plugin and requires a storage backend that supports safe per-session deletion. Otherwise, the plugin reports the limitation and keeps the session.
 - When Settings, the plugin market, or another native DSH modal is open, the divider yields pointer interaction and cannot cover or intercept that modal.
+- When Better Sidebar is installed, the two right-side panels are mutually exclusive: opening Side Chat collapses Better Sidebar, and opening Better Sidebar hides Side Chat. Without Better Sidebar, the normal native DSH header layout remains intact.
 - The Side Chat settings page can enable or disable the plugin and choose the native Agent mode used by new side chats.
 
 ## Sessions and Data
 
 The first open creates a real DSH Session with `parentSession` and archives it immediately, keeping it out of the workspace session list. If a side chat was retained, the next open in the same mode resumes the most recent retained session instead of starting empty.
 
-The plugin does not copy the parent transcript into the side chat. Selected text is added only as a native composer reference. When more background is actually needed, `side_chat_context` can retrieve a bounded, relevant, chronologically ordered set of parent-session events.
+The plugin does not copy the parent transcript into the side chat. Selected text stays in Side Chat's own reference state instead of the native draft and is projected only into the request that is sent. When more background is actually needed, `side_chat_context` can retrieve a bounded, relevant, chronologically ordered set of parent-session events.
 
 The main session and side chat share the same workspace. File edits, commands, approvals, and other tool side effects from the side chat are real. Hiding, retaining, or closing the pane does not undo them.
 
@@ -135,7 +136,8 @@ The main session and side chat share the same workspace. File edits, commands, a
 | **On-demand parent context** | The plugin does not copy the parent transcript. `side_chat_context` retrieves bounded, relevant parent excerpts only when needed. |
 | **True side-by-side layout** | Adds only a minimal split shell. The divider supports dragging and keyboard adjustment, with the side pane constrained to 25%-70%. |
 | **No sidebar pollution** | New side sessions are archived immediately and stay out of the workspace session list. |
-| **Ask about a selection** | Selecting text in a main message reveals an "Ask in side chat" action and places the quote in a removable native composer chip. |
+| **Ask about a selection** | Selecting text reveals a "Quote in side chat" action. References can be previewed or removed without leaving an `@` marker or hidden text in the native composer. |
+| **Better Sidebar compatibility** | The two right-side panels automatically make room for each other and align their header controls; the plugin also renders normally when Better Sidebar is absent. |
 | **Hide, restore, or delete** | Hiding only collapses the pane; retained chats can be restored, and closing can safely delete the child session. |
 | **Native modes and models** | New chats default to Standard mode, with PTC, Minimal, and Creation modes available. The native model selector remains available. |
 

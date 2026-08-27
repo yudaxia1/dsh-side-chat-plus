@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 (2026-08-28)
+
+- Keep Side Chat and Better Sidebar mutually exclusive: opening either panel automatically makes room by hiding the other.
+- Align Side Chat controls with Better Sidebar's header controls while preserving the native header layout when Better Sidebar is not installed.
+- Keep selected-text references out of the native composer draft and project them into the side-session prompt only when a message is sent, eliminating the visible `@` placeholder.
+- Add viewport-safe selection actions, removable reference previews, and a remembered keep-or-delete close preference.
+- Make the split layout respond to its actual container width so narrow hosts remain usable without forcing the main view wider.
+
 ## 1.1.3 (2026-08-27)
 
 - Fix the Windows cold-start race when Side Chat loads before DSH's native conversation entry.

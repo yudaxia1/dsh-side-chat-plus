@@ -28,7 +28,7 @@ if (!hostTemplate.includes('/*__CORE_SOURCE__*/')) {
   throw new Error('host.template.js 缺少 /*__CORE_SOURCE__*/ 占位符')
 }
 const hostMarker = "return {\n  inject: ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'workspaceRegistry'],\n  apply(ctx) {"
-const clientMarker = "return {\n  inject: ['slots', 'timer', 'sessions', 'inputTriggers'],\n  apply(ctx) {"
+const clientMarker = "return {\n  inject: ['slots', 'timer', 'sessions', 'conversation'],\n  apply(ctx) {"
 if (!hostTemplate.includes(hostMarker)) {
   throw new Error('host.template.js 的动态入口形状已变化，停止生成本地适配器')
 }
@@ -132,7 +132,7 @@ cpSync(join(root, 'cordis.patch.yml'), join(packageRoot, 'cordis.patch.yml'), { 
 
 const clientBody = clientSource.replace(
   clientMarker,
-  "return {\n  inject: ['slots', 'timer', 'sessions', 'inputTriggers', 'connection'],\n  apply(ctx) {\n    nativeRpc = ctx.get('connection')?.rpc ?? null",
+  "return {\n  inject: ['slots', 'timer', 'sessions', 'conversation', 'connection'],\n  apply(ctx) {\n    nativeRpc = ctx.get('connection')?.rpc ?? null",
 )
 const clientEntry = `
 const pluginId = '${packageName}'
