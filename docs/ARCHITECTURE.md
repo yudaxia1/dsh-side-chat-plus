@@ -59,6 +59,8 @@ ParallelConversation
 
 side binding 只替换 `sessionId/useSession/useInput/useComposerBlock` 的数据源；`renderSlot`、`renderSlotChain`、全局 sessions/workspaces 和全部 DSH 子组件仍由原 entry 提供。插件没有消息 renderer、Markdown renderer 或输入栏实现。
 
+客户端 loader 会并行执行插件，`dsh.client.inject` 只保证依赖服务可注入，不保证目标插件已经完成 `apply()`。因此 Side Chat 通过 slot registry 的 `conversation` entry 变更订阅等待原生 entry 注册；等待是事件驱动的，并带有可取消的 15 秒诊断截止时间，不使用固定间隔轮询。原生 entry 卸载或热重载时会先恢复旧 component，再等待并接管新 entry；Side Chat 卸载会同步取消订阅和截止时间。header actions/utilities 等子 slot 则使用 `slots.inject` 跟随各自的声明生命周期。
+
 新 child 的原生状态是 blank。为了让侧聊输入框和已有主会话底部对齐，side binding 将 blank composer phase 稳定投影为 active，并用 WeakMap 保持快照引用；composer seat 使用 auto margin 吸收无消息时的剩余空间。输入框尺寸、ResizeObserver、sticky、草稿增长与接管面板仍由原生 `ConversationRoot` 控制。
 
 ## 5. 分栏与动作
@@ -76,4 +78,4 @@ side binding 只替换 `sessionId/useSession/useInput/useComposerBlock` 的数�
 
 ## 7. 已知 seam
 
-当前 DSH 没有公开“为任意 session 渲染完整 conversation”的稳定 service。插件使用现有 slot registry `_core` 找到唯一原生 conversation entry，并从 `SessionProvider` 获取 BindingContext Provider。上游若改变该 seam，插件会 fail loud；禁止退回手搓聊天 UI。
+当前 DSH 没有公开“为任意 session 渲染完整 conversation”的稳定 service。插件使用现有 slot registry `_core` 的 `entries/subscribe/register` 生命周期 seam 找到并跟踪唯一原生 conversation entry，并从 `SessionProvider` 获取 BindingContext Provider。目标 entry 尚未注册属于可等待的 loader 状态；只有 seam 本身缺失才会在加载时 fail loud。上游若改变该 seam，应更新适配层；禁止退回手搓聊天 UI。

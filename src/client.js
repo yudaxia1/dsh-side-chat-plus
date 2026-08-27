@@ -480,31 +480,109 @@ function ParallelConversation(props) {
   )
 }
 
-function adoptNativeConversation(slots) {
+function adoptNativeConversation(slots, timer, {
+  timeoutMs = 15_000,
+  onUnavailable = error => console.error(error),
+} = {}) {
   // ui-slots intentionally exposes child rendering only to the entry that owns
   // the declarations. Preserve that exact native entry and change only its face.
-  // `_core` is the current DSH runtime adapter seam; fail loud if upstream moves it.
+  // `_core` is the current DSH runtime adapter seam; fail loud only when the seam
+  // itself moved. A missing entry is a normal parallel-loader state and is watched.
   const core = slots?._core
-  const entries = core?.entries?.('conversation')
-  const nativeEntry = Array.isArray(entries)
-    ? entries.find(entry => entry?.children?.['conversation.session'] !== undefined
-      && entry?.children?.['conversation.composer.bar'] !== undefined)
-    : undefined
-  if (nativeEntry === undefined) {
-    throw new Error('dsh-side-chat: native conversation entry is unavailable')
+  if (typeof core?.entries !== 'function'
+    || typeof core?.subscribe !== 'function'
+    || typeof core?.register !== 'function'
+    || typeof timer?.setTimeout !== 'function') {
+    throw new Error('dsh-side-chat: native conversation lifecycle API is unavailable')
   }
-  const previous = nativeEntry.component
-  NativeConversationRoot = previous
-  nativeEntry.component = ParallelConversation
-  // A transient lower-priority occupant changes the conversation version once,
-  // so an already-mounted page adopts the new face without owning child slots.
-  const pulse = slots.register({ name: 'conversation', priority: -100 }, () => null)
-  pulse()
+
+  let disposed = false
+  let watching = true
+  let adoptedEntry
+  let previousComponent
+  let cancelDeadline
+
+  const pulse = () => {
+    // During layout/HMR teardown the declaration may already have collapsed.
+    if (typeof core.specDynamic === 'function' && core.specDynamic('conversation') === undefined) return
+    const release = core.register({ name: 'conversation', priority: -100 }, () => null)
+    release()
+  }
+  const clearDeadline = () => {
+    const cancel = cancelDeadline
+    cancelDeadline = undefined
+    cancel?.()
+  }
+  let unsubscribe = () => {}
+  const stopWatching = () => {
+    if (!watching) return
+    watching = false
+    unsubscribe()
+    clearDeadline()
+  }
+  const armDeadline = () => {
+    if (cancelDeadline !== undefined || disposed || !watching) return
+    let active = true
+    const cancel = timer.setTimeout(() => {
+      if (!active || disposed || adoptedEntry !== undefined) return
+      active = false
+      cancelDeadline = undefined
+      stopWatching()
+      onUnavailable(new Error(`dsh-side-chat: native conversation entry was unavailable after ${timeoutMs}ms`))
+    }, timeoutMs)
+    cancelDeadline = () => {
+      if (!active) return
+      active = false
+      cancel()
+    }
+  }
+  const releaseAdoption = () => {
+    if (adoptedEntry === undefined) return
+    const entry = adoptedEntry
+    const previous = previousComponent
+    adoptedEntry = undefined
+    previousComponent = undefined
+    if (entry.component === ParallelConversation) {
+      entry.component = previous
+      pulse()
+    }
+    if (NativeConversationRoot === previous) NativeConversationRoot = null
+  }
+  const findNativeEntry = () => {
+    const entries = core.entries('conversation')
+    return Array.isArray(entries)
+      ? entries.find(entry => entry?.children?.['conversation.session'] !== undefined
+        && entry?.children?.['conversation.composer.bar'] !== undefined)
+      : undefined
+  }
+  const reconcile = () => {
+    if (disposed || !watching) return
+    const nativeEntry = findNativeEntry()
+    if (adoptedEntry !== undefined) {
+      if (nativeEntry === adoptedEntry && adoptedEntry.component === ParallelConversation) return
+      releaseAdoption()
+    }
+    if (nativeEntry === undefined || nativeEntry.component === ParallelConversation) {
+      armDeadline()
+      return
+    }
+    previousComponent = nativeEntry.component
+    adoptedEntry = nativeEntry
+    NativeConversationRoot = previousComponent
+    nativeEntry.component = ParallelConversation
+    clearDeadline()
+    // A transient lower-priority occupant changes the conversation version once,
+    // so an already-mounted page adopts the new face without owning child slots.
+    pulse()
+  }
+
+  unsubscribe = core.subscribe('conversation', reconcile)
+  reconcile()
   return () => {
-    if (nativeEntry.component === ParallelConversation) nativeEntry.component = previous
-    NativeConversationRoot = null
-    const refresh = slots.register({ name: 'conversation', priority: -100 }, () => null)
-    refresh()
+    if (disposed) return
+    disposed = true
+    stopWatching()
+    releaseAdoption()
   }
 }
 
@@ -512,6 +590,7 @@ return {
   inject: ['slots', 'timer', 'sessions', 'inputTriggers'],
   apply(ctx) {
     const slots = ctx.get('slots')
+    const timer = ctx.get('timer')
     sessionsService = ctx.get('sessions')
     inputTriggersService = ctx.get('inputTriggers')
     styles.insert(CSS)
@@ -528,19 +607,19 @@ return {
       },
     })
 
-    const releaseConversation = adoptNativeConversation(slots)
+    const releaseConversation = adoptNativeConversation(slots, timer)
 
-    slots.register({
+    slots.inject('conversation.session.header.actions', () => slots.register({
       name: 'conversation.session.header.actions',
       id: 'side-chat',
       order: 90,
-    }, HeaderAction)
+    }, HeaderAction))
 
-    slots.register({
+    slots.inject('conversation.session.header.utilities', () => slots.register({
       name: 'conversation.session.header.utilities',
       id: 'side-chat-controls',
       order: 1000,
-    }, SideUtilities)
+    }, SideUtilities))
 
     slots.inject('settings.section', () => slots.register({
       name: 'settings.section',

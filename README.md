@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="release/dsh-side-chat-1.1.2.tgz"><img alt="Version 1.1.2" src="https://img.shields.io/badge/version-1.1.2-2563eb?style=flat-square"></a>
+  <a href="release/dsh-side-chat-1.1.3.tgz"><img alt="Version 1.1.3" src="https://img.shields.io/badge/version-1.1.3-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111827?style=flat-square"></a>
-  <img alt="Tests 17 passing" src="https://img.shields.io/badge/tests-17%20passing-16a34a?style=flat-square">
+  <img alt="Tests 21 passing" src="https://img.shields.io/badge/tests-21%20passing-16a34a?style=flat-square">
   <img alt="DeepSeek Harness plugin" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-0ea5e9?style=flat-square">
 </p>
 
@@ -33,7 +33,7 @@
 
 ## 先看这里
 
-- **想直接使用：** 下载 [`release/dsh-side-chat-1.1.2.tgz`](release/dsh-side-chat-1.1.2.tgz)，按下方命令安装。
+- **想直接使用：** 下载 [`release/dsh-side-chat-1.1.3.tgz`](release/dsh-side-chat-1.1.3.tgz)，按下方命令安装。
 - **想参与开发：** 克隆仓库后运行 `npm test`，它会构建插件并执行全部回归测试。
 - **它解决什么：** 在不离开主会话的情况下，打开一个可以独立提问、调用工具和修改工作区的原生 DSH 会话。
 - **最重要的边界：** 主会话与侧聊共享工作区，但 transcript 相互独立；侧聊不会自动复制整段主对话。
@@ -58,10 +58,10 @@
 
 ```powershell
 # 从 GitHub Release 下载后：
-dsh plugin --profile web add .\dsh-side-chat-1.1.2.tgz
+dsh plugin --profile web add .\dsh-side-chat-1.1.3.tgz
 
 # 或使用仓库内副本：
-dsh plugin --profile web add .\release\dsh-side-chat-1.1.2.tgz
+dsh plugin --profile web add .\release\dsh-side-chat-1.1.3.tgz
 ```
 
 从希望 Agent 操作的工程目录启动 DSH：

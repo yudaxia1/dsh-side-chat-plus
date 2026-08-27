@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3 (2026-08-27)
+
+- Fix the Windows cold-start race when Side Chat loads before DSH's native conversation entry.
+- Follow native conversation entry registration and hot-reload lifecycles without polling or duplicate component replacement.
+- Cancel pending readiness diagnostics during plugin unload and defer child-slot contributions through `slots.inject`.
+
 ## 1.1.2
 
 - Keep independent side-session UI state for every main conversation.

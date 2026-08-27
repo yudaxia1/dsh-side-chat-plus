@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="release/dsh-side-chat-1.1.2.tgz"><img alt="Version 1.1.2" src="https://img.shields.io/badge/version-1.1.2-2563eb?style=flat-square"></a>
+  <a href="release/dsh-side-chat-1.1.3.tgz"><img alt="Version 1.1.3" src="https://img.shields.io/badge/version-1.1.3-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-111827?style=flat-square"></a>
-  <img alt="Tests 17 passing" src="https://img.shields.io/badge/tests-17%20passing-16a34a?style=flat-square">
+  <img alt="Tests 21 passing" src="https://img.shields.io/badge/tests-21%20passing-16a34a?style=flat-square">
   <img alt="DeepSeek Harness plugin" src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-0ea5e9?style=flat-square">
 </p>
 
@@ -33,7 +33,7 @@
 
 ## Start Here
 
-- **Just use it:** download [`release/dsh-side-chat-1.1.2.tgz`](release/dsh-side-chat-1.1.2.tgz) and install it with the command below.
+- **Just use it:** download [`release/dsh-side-chat-1.1.3.tgz`](release/dsh-side-chat-1.1.3.tgz) and install it with the command below.
 - **Develop it:** clone the repository, run `npm test`, and let the same command build the plugin and run the regression suite.
 - **What it solves:** open a native DSH session that can ask questions, use tools, and work in the project without leaving the main conversation.
 - **The key boundary:** the main session and side chat share a workspace but keep independent transcripts; the side chat does not automatically copy the full parent conversation.
@@ -58,10 +58,10 @@ Download the prebuilt package from [GitHub Releases](https://github.com/KarlOfLa
 
 ```powershell
 # After downloading from GitHub Releases:
-dsh plugin --profile web add .\dsh-side-chat-1.1.2.tgz
+dsh plugin --profile web add .\dsh-side-chat-1.1.3.tgz
 
 # Or use the in-repo copy:
-dsh plugin --profile web add .\release\dsh-side-chat-1.1.2.tgz
+dsh plugin --profile web add .\release\dsh-side-chat-1.1.3.tgz
 ```
 
 Start DSH from the project that you want the Agent to work in:

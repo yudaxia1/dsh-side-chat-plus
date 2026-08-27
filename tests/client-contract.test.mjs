@@ -5,13 +5,16 @@ import test from 'node:test'
 const client = await readFile(new URL('../src/client.js', import.meta.url), 'utf8')
 
 test('client adopts the one native conversation declaration and reuses its inner slots', () => {
-  assert.match(client, /core\?\.entries\?\.\('conversation'\)/)
+  assert.match(client, /core\.entries\('conversation'\)/)
+  assert.match(client, /core\.subscribe\('conversation', reconcile\)/)
   assert.match(client, /nativeEntry\.component = ParallelConversation/)
   assert.match(client, /name: 'conversation', priority: -100/)
   for (const slot of ['conversation.session', 'conversation.composer.bar']) {
     assert.match(client, new RegExp(slot.replaceAll('.', '\\.')))
   }
   assert.match(client, /NativeConversationRoot = previous/)
+  assert.match(client, /slots\.inject\('conversation\.session\.header\.actions'/)
+  assert.match(client, /slots\.inject\('conversation\.session\.header\.utilities'/)
   assert.match(client, /h\(NativeConversationRoot, props\)/)
   assert.match(client, /h\(SideNativeConversation/)
   assert.doesNotMatch(client, /shell\.overlay|name: 'details'|openDetails|closeDetails/)
