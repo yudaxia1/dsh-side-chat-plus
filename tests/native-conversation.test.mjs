@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const client = await readFile(new URL('../src/client.js', import.meta.url), 'utf8')
+const client = (await readFile(new URL('../src/client.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n')
 const functionStart = client.indexOf('function adoptNativeConversation')
 const functionEnd = client.indexOf('\n\nreturn {', functionStart)
 assert.notEqual(functionStart, -1, 'adoptNativeConversation source is missing')

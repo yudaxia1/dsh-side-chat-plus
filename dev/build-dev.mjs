@@ -20,9 +20,12 @@ const packageRoot = join(devRoot, 'node_modules', packageName)
 const sandboxPackageRoot = join(devRoot, 'dsh-home', 'profiles', 'web', 'node_modules', packageName)
 
 const coreSource = readFileSync(join(root, 'src', 'core.mjs'), 'utf8')
+  .replace(/\r\n/g, '\n')
   .replace(/\nexport \{[\s\S]*\}\s*$/, '\n')
 const hostTemplate = readFileSync(join(root, 'src', 'host.template.js'), 'utf8')
+  .replace(/\r\n/g, '\n')
 const clientSource = readFileSync(join(root, 'src', 'client.js'), 'utf8')
+  .replace(/\r\n/g, '\n')
 
 if (!hostTemplate.includes('/*__CORE_SOURCE__*/')) {
   throw new Error('host.template.js 缺少 /*__CORE_SOURCE__*/ 占位符')

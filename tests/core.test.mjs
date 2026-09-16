@@ -44,7 +44,14 @@ test('opening carries selection as draft metadata, never as a transcript seed', 
     parentSessionId: 'main',
     anchorText: 'chosen',
     preset: 'standard',
+    readOnly: true,
   })
+})
+
+test('opening defaults to read-only and honors an explicit writable choice', () => {
+  assert.equal(normalizeOpenRequest({ parentSessionId: 'main' }).readOnly, true)
+  assert.equal(normalizeOpenRequest({ parentSessionId: 'main', readOnly: false }).readOnly, false)
+  assert.equal(normalizeOpenRequest({ parentSessionId: 'main', readOnly: 'yes' }).readOnly, true)
 })
 
 test('opening accepts only shipped DSH presets and falls back to standard', () => {

@@ -73,13 +73,14 @@ const CLOSE_BEHAVIOR_OPTIONS = Object.freeze([
 ])
 
 function storedPreferences() {
-  const fallback = { enabled: true, preset: 'standard', closeBehavior: 'ask' }
+  const fallback = { enabled: true, preset: 'standard', closeBehavior: 'ask', readOnly: true }
   try {
     const parsed = JSON.parse(globalThis.localStorage?.getItem(PREFERENCE_KEY) ?? 'null')
     return {
       enabled: typeof parsed?.enabled === 'boolean' ? parsed.enabled : fallback.enabled,
       preset: PRESET_OPTIONS.some(option => option.id === parsed?.preset) ? parsed.preset : fallback.preset,
       closeBehavior: CLOSE_BEHAVIOR_OPTIONS.some(option => option.id === parsed?.closeBehavior) ? parsed.closeBehavior : fallback.closeBehavior,
+      readOnly: typeof parsed?.readOnly === 'boolean' ? parsed.readOnly : fallback.readOnly,
     }
   } catch (_error) {
     return fallback
@@ -90,6 +91,7 @@ const initialState = Object.freeze({ sides: new Map(), busy: false, dialog: null
 let uiState = initialState
 const subscribers = new Set()
 let sessionsService = null
+let conversationService = null
 let NativeConversationRoot = null
 let projectedSideSessions = new WeakMap()
 let projectedSideProvideInfos = new WeakMap()
@@ -189,6 +191,7 @@ function updatePreferences(patch) {
       enabled: uiState.enabled,
       preset: uiState.preset,
       closeBehavior: uiState.closeBehavior,
+      readOnly: uiState.readOnly,
     }))
   } catch (_error) {}
 }
@@ -231,7 +234,7 @@ async function openSide(parentId, anchorText = '') {
   }
   update({ busy: true, error: '', errorParentId: null })
   try {
-    const result = await rpc('sideChat.open', { parentSessionId: parentId, anchorText, preset: uiState.preset })
+    const result = await rpc('sideChat.open', { parentSessionId: parentId, anchorText, preset: uiState.preset, readOnly: uiState.readOnly })
     const selections = appendSelection(storedSelections(result.sessionId), anchorText)
     setSide(parentId, { sideId: result.sessionId, hidden: false, selections })
     persistSelections(result.sessionId, selections)
@@ -692,12 +695,88 @@ function SettingsSection() {
       ),
     ),
     h('div', { className: 'dsh-sc-settings-row' },
+      h('div', null, h('div', { className: 'dsh-sc-settings-title' }, '只读模式'), h('div', { className: 'dsh-sc-settings-desc' }, '开启后侧聊只能读取和搜索文件，不能修改工作区；关闭后拥有完整工具能力。对新开启和恢复的侧聊生效。')),
+      h(Toggle, { checked: state.readOnly, label: '只读模式', onChange: readOnly => updatePreferences({ readOnly }) }),
+    ),
+    h('div', { className: 'dsh-sc-settings-row' },
       h('div', null, h('div', { className: 'dsh-sc-settings-title' }, '关闭侧聊时'), h('div', { className: 'dsh-sc-settings-desc' }, '可每次询问，或直接沿用上次记住的保留/删除选择。')),
       h('select', { className: 'dsh-sc-settings-select', value: state.closeBehavior, onChange: event => updatePreferences({ closeBehavior: event.target.value }), 'aria-label': '关闭侧聊时' },
         ...CLOSE_BEHAVIOR_OPTIONS.map(option => h('option', { key: option.id, value: option.id }, option.label)),
       ),
     ),
   )
+}
+
+function PromoteIcon() {
+  return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+    h('path', { d: 'M3 10.5V13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2.5' }),
+    h('path', { d: 'M8 10V2M5 5l3-3 3 3' }),
+  )
+}
+
+// Pull the finalized assistant text out of the side Session's event window.
+// Entries are { type: 'event', event } rows; the durable assistant/message
+// carries the message with its content parts.
+function findAssistantMessageText(sessionId, messageId) {
+  const entries = sessionsService?.binding?.(sessionId)?.eventSource?.getSnapshot?.()?.entries
+  if (!Array.isArray(entries)) return ''
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const event = entries[i]?.event ?? entries[i]
+    if (event?.type !== 'assistant/message') continue
+    const message = event.message ?? event.data?.message ?? event.data
+    const id = message?.id ?? event.messageId ?? event.id
+    if (id !== messageId) continue
+    return messageText(message)
+  }
+  return ''
+}
+
+function messageText(message) {
+  if (message === null || typeof message !== 'object') return ''
+  const content = message.content ?? message.parts ?? message.text
+  if (typeof content === 'string') return content.trim()
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') return part
+        if (part === null || typeof part !== 'object') return ''
+        if (part.type !== undefined && part.type !== 'text' && typeof part.text !== 'string') return ''
+        return typeof part.text === 'string' ? part.text : typeof part.content === 'string' ? part.content : ''
+      })
+      .filter(text => text.trim() !== '')
+      .join('\n\n')
+      .trim()
+  }
+  return ''
+}
+
+function quoteBlock(text) {
+  return ['**来自旁聊：**', '', ...String(text).split('\n').map(line => `> ${line}`)].join('\n')
+}
+
+// Promote one side-chat answer into the main conversation's composer draft;
+// the human still reviews and sends it there, keeping promotion explicit.
+function promoteToMain(parentId, sideId, messageId) {
+  const text = findAssistantMessageText(sideId, messageId)
+  if (text === '') return
+  try {
+    const scope = sessionsService?.scope?.(parentId)
+    const input = scope === undefined || scope === null ? undefined : conversationService?.input?.for?.(scope)
+    if (input === undefined || typeof input.setDraft !== 'function') return
+    input.setDraft(quoteBlock(text))
+  } catch (error) {
+    console.error('dsh-side-chat: promote failed', error)
+  }
+}
+
+function PromoteToMainAction({ sessionId, messageId }) {
+  const state = useSideState()
+  const owner = findSideOwner(state, sessionId)
+  if (owner === undefined) return null
+  return h(IconAction, {
+    label: '带到主会话',
+    onClick: () => promoteToMain(owner.parentId, sessionId, messageId),
+  }, h(PromoteIcon))
 }
 
 function SideUtilities({ sessionId }) {
@@ -1062,10 +1141,17 @@ return {
     const slots = ctx.get('slots')
     const timer = ctx.get('timer')
     sessionsService = ctx.get('sessions')
-    const releasePromptProjection = installSidePromptProjection(ctx.get('conversation'))
+    conversationService = ctx.get('conversation')
+    const releasePromptProjection = installSidePromptProjection(conversationService)
     styles.insert(CSS)
 
     const releaseConversation = adoptNativeConversation(slots, timer)
+
+    slots.inject('conversation.chat.assistant-actions', () => slots.register({
+      name: 'conversation.chat.assistant-actions',
+      id: 'side-chat-promote',
+      order: 90,
+    }, PromoteToMainAction))
 
     slots.inject('conversation.session.header.actions', () => slots.register({
       name: 'conversation.session.header.actions',
@@ -1097,6 +1183,7 @@ return {
       releasePromptProjection()
       subscribers.clear()
       sessionsService = null
+      conversationService = null
       projectedSideSessions = new WeakMap()
       projectedSideProvideInfos = new WeakMap()
       uiState = initialState

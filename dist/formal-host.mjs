@@ -174,6 +174,8 @@ function normalizeOpenRequest(input) {
     parentSessionId: requireSessionId(source.parentSessionId, 'parentSessionId'),
     anchorText: typeof source.anchorText === 'string' ? source.anchorText.trim().slice(0, 8000) : '',
     preset,
+    // Read-only mode confines the side Session to read/search tools; default on.
+    readOnly: typeof source.readOnly === 'boolean' ? source.readOnly : true,
   }
 }
 
@@ -227,7 +229,7 @@ function normalizeContextRequest(input) {
       return next
     }
 
-    function sidePrompt(parentSessionId, preset) {
+    function sidePrompt(parentSessionId, preset, readOnly) {
       return [
         'You are running in a side conversation beside a main DeepSeek Harness conversation.',
         'This is a real independent Session. Never claim that the main transcript was copied into this Session.',
@@ -235,7 +237,23 @@ function normalizeContextRequest(input) {
         'When the user refers to the main conversation, selected text, earlier decisions, files, tool results, or unresolved work, call side_chat_context with a focused query before answering.',
         'Use the returned excerpts as runtime context only. Do not repeat them unless the answer requires it.',
         `Use the DSH ${preset} agent preset while keeping its native tools, skills, approval rules, and composer behavior unchanged.`,
+        ...(readOnly
+          ? ['This Session runs in a read-only sandbox: you may read and search files, but every write, edit, and mutating command is denied. Answer with analysis and suggestions; never claim you changed anything.']
+          : []),
       ].join('\n')
+    }
+
+    // Pin the sandbox/approval knobs through the same durable session events the
+    // native /permission flow uses; the session projection folds the last switch,
+    // so re-asserting on every open (create or resume) honors the latest toggle.
+    function pinReadOnly(session, readOnly) {
+      try {
+        session.append('sandbox/mode', { mode: readOnly ? 'read-only' : 'workspace-write' })
+        session.append('approval/policy', { policy: readOnly ? 'never' : 'ask' })
+      } catch (error) {
+        // Older hosts without these events degrade to the deployment defaults.
+        void error
+      }
     }
 
     async function readParentContext(parentSessionId, request) {
@@ -252,14 +270,14 @@ function normalizeContextRequest(input) {
       }
     }
 
-    async function composeChild(childCtx, parent, preset) {
+    async function composeChild(childCtx, parent, preset, readOnly) {
       if (agentPresets !== undefined && typeof agentPresets.mount === 'function') {
         await agentPresets.mount(childCtx, preset)
       }
       childCtx.systemPrompt.section({
         name: 'dsh-side-chat:relationship',
         order: 85,
-        text: sidePrompt(parent.id, preset),
+        text: sidePrompt(parent.id, preset, readOnly),
       })
       childCtx.tools.register({
         name: 'side_chat_context',
@@ -304,7 +322,7 @@ function normalizeContextRequest(input) {
       return handle
     }
 
-    async function createOrResume(parentSessionId, preset) {
+    async function createOrResume(parentSessionId, preset, readOnly) {
       const knownId = byParent.get(parentSessionId)
       if (knownId !== undefined) {
         const known = handles.get(knownId)
@@ -320,7 +338,7 @@ function normalizeContextRequest(input) {
         }
         const handle = await agents.resume({
           resumeSessionId: retained.id,
-          setup: childCtx => composeChild(childCtx, parent, preset),
+          setup: childCtx => composeChild(childCtx, parent, preset, readOnly),
         })
         return { handle: remember(parentSessionId, handle), resumed: true }
       }
@@ -334,15 +352,16 @@ function normalizeContextRequest(input) {
           agentPreset: preset,
         },
         agentOptions: safeAgentOptions(parent),
-        setup: childCtx => composeChild(childCtx, parent, preset),
+        setup: childCtx => composeChild(childCtx, parent, preset, readOnly),
       })
       return { handle: remember(parentSessionId, handle), resumed: false }
     }
 
     async function open(input) {
       const request = normalizeOpenRequest(input)
-      const result = await createOrResume(request.parentSessionId, request.preset)
+      const result = await createOrResume(request.parentSessionId, request.preset, request.readOnly)
       const child = result.handle.agent
+      pinReadOnly(child.session, request.readOnly)
       await requireService(workspaceRegistry, 'workspaceRegistry').archiveSession(child.id)
       return {
         sessionId: child.id,

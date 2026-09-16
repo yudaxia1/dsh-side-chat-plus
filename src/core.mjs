@@ -135,6 +135,8 @@ function normalizeOpenRequest(input) {
     parentSessionId: requireSessionId(source.parentSessionId, 'parentSessionId'),
     anchorText: typeof source.anchorText === 'string' ? source.anchorText.trim().slice(0, 8000) : '',
     preset,
+    // Read-only mode confines the side Session to read/search tools; default on.
+    readOnly: typeof source.readOnly === 'boolean' ? source.readOnly : true,
   }
 }
 
