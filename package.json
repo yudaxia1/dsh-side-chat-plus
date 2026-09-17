@@ -25,8 +25,8 @@
     "build": "node build.mjs",
     "build:formal": "node build-formal.mjs",
     "prepare": "node build.mjs",
-    "test": "node build.mjs && node tests/core.test.mjs && node tests/integration.test.mjs && node tests/client-contract.test.mjs && node tests/native-conversation.test.mjs && node tests/smoke.test.mjs",
-    "check": "node build.mjs && node tests/core.test.mjs && node tests/integration.test.mjs && node tests/client-contract.test.mjs && node tests/native-conversation.test.mjs && node tests/smoke.test.mjs"
+    "test": "node build.mjs && node tests/core.test.mjs && node tests/integration.test.mjs && node tests/client-contract.test.mjs && node tests/transcript.test.mjs && node tests/smoke.test.mjs",
+    "check": "node build.mjs && node tests/core.test.mjs && node tests/integration.test.mjs && node tests/client-contract.test.mjs && node tests/transcript.test.mjs && node tests/smoke.test.mjs"
   },
   "exports": {
     ".": "./dist/formal-host.mjs",
@@ -43,6 +43,8 @@
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-model-selection",
         "@deepseek-ai/dsh-client-ui-input-trigger",
         "@deepseek-ai/dsh-client-ui-settings-general",
         "@deepseek-ai/dsh-client-connection"
