@@ -6,7 +6,7 @@ return {
   apply(ctx) {
     const SIDE_ID_PREFIX = 'sidechat-'
 const SIDE_CHAT_PRESET = 'standard'
-const SIDE_CHAT_PRESETS = Object.freeze(['standard', 'code', 'minimal', 'cordis'])
+const SIDE_CHAT_PRESETS = Object.freeze(['standard', 'ptc', 'minimal', 'cordis'])
 const MAX_QUERY_LENGTH = 400
 const DEFAULT_LIMIT = 24
 const MAX_LIMIT = 60

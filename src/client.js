@@ -62,7 +62,7 @@ const SELECTIONS_KEY = 'dsh-side-chat.selections.v1'
 const REFERENCE_MIGRATION_KEY = 'dsh-side-chat.reference-storage.v2'
 const PRESET_OPTIONS = Object.freeze([
   { id: 'standard', label: '标准模式' },
-  { id: 'code', label: 'PTC 模式' },
+  { id: 'ptc', label: 'PTC 模式' },
   { id: 'minimal', label: '极简模式' },
   { id: 'cordis', label: '创造模式' },
 ])

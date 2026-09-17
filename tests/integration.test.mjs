@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { apply } from '../dist/formal-host.mjs'
 
@@ -43,6 +44,14 @@ function fixture({ coldParent = false } = {}) {
   }
   const ctx = {
     get: name => services[name],
+    // Conditional injection: the child Context exposes the injected services as
+    // properties, which is how the Host channel registry reads its route owner.
+    inject: (keys, callback) => {
+      if (keys.some(key => services[key] === undefined)) return
+      const child = { ...ctx }
+      for (const key of keys) child[key] = services[key]
+      callback(child)
+    },
     effect: setup => {
       const disposer = setup()
       disposers.push(disposer)
@@ -50,18 +59,39 @@ function fixture({ coldParent = false } = {}) {
     },
   }
   const connection = {
-    rpc: {
-      handle(_path, callback) {
-        handlers.set('rpc', callback)
-        return async () => handlers.delete('rpc')
-      },
-    },
+    // The Host fence the route reuses; a real deployment derives it from the
+    // request Host/Origin and the browser session cookie.
+    requestRejection: () => undefined,
   }
   services.connection = connection
+  services.webServer = {
+    register(route) {
+      handlers.set('route', route.handler)
+      return () => handlers.delete('route')
+    },
+  }
   apply(ctx)
   const call = async (method, input) => {
-    const result = await handlers.get('rpc')(method, input)
-    if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+    const handler = handlers.get('route')
+    if (handler === undefined) throw new Error('side-chat route is not registered')
+    const payload = JSON.stringify({ type: 'client-request', rpcId: 'test', method, payload: input })
+    const req = {
+      method: 'POST',
+      url: `/side-chat/${method}`,
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) },
+      async *[Symbol.asyncIterator]() { yield Buffer.from(payload) },
+    }
+    let status = 0
+    let body = ''
+    const res = {
+      writeHead(code) { status = code },
+      end(text) { body = text ?? '' },
+      on() {},
+    }
+    await handler(req, res)
+    if (status !== 200) throw new Error(`route responded ${status}: ${body}`)
+    const result = JSON.parse(body).result
+    if (result?.ok !== true) throw Object.assign(new Error(result?.error?.message ?? 'rpc failed'), { code: result?.error?.code })
     return result.value
   }
   return { call, child: () => childHandle, registrations, archivedSessionIds, disposers }
@@ -99,4 +129,15 @@ test('keep closes the live child but preserves persistence', async () => {
   const closed = await run.call('sideChat.close', { sessionId: opened.sessionId, mode: 'keep' })
   assert.equal(closed.deleted, false)
   assert.equal(run.child().disposed, true)
+})
+
+test('host serves its channel through a fenced web route, not connection.rpc.handle', async () => {
+  const host = await readFile(new URL('../dist/formal-host.mjs', import.meta.url), 'utf8')
+  // DSH 0.1.6 registers a connection.rpc channel route through the Connection
+  // service's own Context, which never injects webServer, so handle() throws
+  // 'cannot get property "webServer" without inject' and the entry fails to
+  // activate. The plugin therefore owns its route and reuses the fence.
+  assert.doesNotMatch(host, /connection\.rpc\.handle\(/)
+  assert.match(host, /connectionCtx\.webServer\.register\(route\)/)
+  assert.match(host, /connection\.requestRejection\(req\)/)
 })

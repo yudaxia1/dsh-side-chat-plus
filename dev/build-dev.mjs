@@ -43,7 +43,7 @@ const hostPrelude = `import { lstat, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 
 export const name = '${packageName}'
-export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'workspaceRegistry', 'connection']
+export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'workspaceRegistry', 'connection', 'webServer']
 
 const sideChatHandlers = new Map()
 const harness = {
@@ -81,26 +81,129 @@ let hostSource = hostTemplate
   .replace('/*__CORE_SOURCE__*/', coreSource)
 
 const hostTail = `
-  const connection = ctx.get('connection')
-  if (connection?.rpc?.handle === undefined) {
-    throw new Error('dsh-side-chat-dev: public connection.rpc is unavailable')
+  // DSH 0.1.6 cannot serve a third-party channel registered through the
+  // Connection service's handle(): it registers its route through
+  // owner.webServer, and owner is the Connection service's own Context, which
+  // never injects webServer (the Gateway only appears to work because its
+  // intercept() and exact Fetch routes never touch webServer). Register the
+  // prefix route ourselves and reuse the service's requestRejection so the
+  // Host/Origin fence and browser authentication stay identical to a native
+  // channel.
+  const SIDE_CHAT_CHANNEL = '/side-chat'
+  const SIDE_CHAT_MAX_BODY_BYTES = 1048576
+  const SIDE_CHAT_ENDPOINT_SEGMENT = /^[A-Za-z0-9_$.-]+$/
+
+  function sideChatEndpoint(pathname) {
+    const prefix = SIDE_CHAT_CHANNEL + '/'
+    if (!pathname.startsWith(prefix)) return undefined
+    const endpoint = pathname.slice(prefix.length)
+    const segments = endpoint.split('/')
+    if (segments.some(segment => segment === '' || segment === '.' || segment === '..' || !SIDE_CHAT_ENDPOINT_SEGMENT.test(segment))) return undefined
+    return endpoint
   }
-  const disposeRpc = connection.rpc.handle('/side-chat', async (endpoint, payload, signal) => {
-    const handler = sideChatHandlers.get(endpoint)
-    if (handler === undefined) {
-      return { ok: false, error: { code: 'internal', message: \`未知侧聊方法: \${endpoint}\`, details: {} } }
+
+  function sideChatWrite(res, status, body, contentType) {
+    const text = typeof body === 'string' ? body : JSON.stringify(body)
+    res.writeHead(status, { 'content-type': contentType ?? 'text/plain' })
+    res.end(text)
+  }
+
+  function sideChatResponse(res, rpcId, result) {
+    sideChatWrite(res, 200, { type: 'server-response', rpcId, result }, 'application/json')
+  }
+
+  function sideChatFailed(res, rpcId, code, message) {
+    sideChatResponse(res, rpcId, { ok: false, error: { code, message, details: {} } })
+  }
+
+  async function sideChatReadBody(req) {
+    const declared = req.headers['content-length']
+    if (declared !== undefined && Number(declared) > SIDE_CHAT_MAX_BODY_BYTES) return undefined
+    const chunks = []
+    let received = 0
+    for await (const chunk of req) {
+      received += chunk.byteLength
+      if (received > SIDE_CHAT_MAX_BODY_BYTES) return undefined
+      chunks.push(chunk)
     }
-    try {
-      return { ok: true, value: await handler(payload, signal) }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ok: false, error: { code: 'internal', message, details: {} } }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+
+  ctx.inject(['connection', 'webServer'], (connectionCtx) => {
+    const connection = connectionCtx.connection
+    if (connection?.requestRejection === undefined || connectionCtx.webServer?.register === undefined) {
+      throw new Error('dsh-side-chat-dev: the Host connection fence or web server is unavailable')
     }
-  }, { authority: 'trusted-host' })
-  ctx.effect(() => async () => {
-    await disposeRpc()
-    sideChatHandlers.clear()
-  }, 'dsh-side-chat-dev: connection rpc')
+    const route = {
+      kind: 'prefix',
+      path: SIDE_CHAT_CHANNEL,
+      handler: async (req, res) => {
+        // Same fence the native channels apply: loopback Host/Origin trust, then
+        // the browser session cookie minted from the process launch token.
+        const rejection = connection.requestRejection(req)
+        if (rejection !== undefined) {
+          res.writeHead(rejection)
+          res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+          return
+        }
+        if (req.method !== 'POST') {
+          sideChatWrite(res, 404, 'not found')
+          return
+        }
+        const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
+        const endpoint = sideChatEndpoint(pathname)
+        if (endpoint === undefined) {
+          sideChatWrite(res, 404, 'not found')
+          return
+        }
+        const mediaType = String(req.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase()
+        if (mediaType !== 'application/json') {
+          sideChatWrite(res, 415, 'content type must be application/json')
+          return
+        }
+        const raw = await sideChatReadBody(req)
+        if (raw === undefined) {
+          sideChatWrite(res, 413, 'request body too large')
+          return
+        }
+        let envelope
+        try {
+          envelope = JSON.parse(raw)
+        } catch (error) {
+          void error
+          sideChatWrite(res, 400, 'body is not JSON')
+          return
+        }
+        const rpcId = typeof envelope?.rpcId === 'string' ? envelope.rpcId : 'invalid-request'
+        if (envelope?.type !== 'client-request' || typeof envelope.method !== 'string') {
+          sideChatFailed(res, rpcId, 'gateway/bad-request', 'invalid client-request message')
+          return
+        }
+        if (envelope.method !== endpoint) {
+          sideChatFailed(res, rpcId, 'gateway/bad-request', 'method ' + JSON.stringify(envelope.method) + ' does not match endpoint ' + JSON.stringify(endpoint))
+          return
+        }
+        const handler = sideChatHandlers.get(endpoint)
+        if (handler === undefined) {
+          sideChatFailed(res, rpcId, 'internal', '未知侧聊方法: ' + endpoint)
+          return
+        }
+        try {
+          sideChatResponse(res, rpcId, { ok: true, value: await handler(envelope.payload) })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          sideChatFailed(res, rpcId, 'internal', message)
+        }
+      },
+    }
+    connectionCtx.effect(() => {
+      const disposeRoute = connectionCtx.webServer.register(route)
+      return () => {
+        disposeRoute()
+        sideChatHandlers.clear()
+      }
+    }, 'dsh-side-chat-dev: side-chat rpc route')
+  })
 }`
 
 if (!/\n  \},\n\}\s*$/.test(hostSource)) {
