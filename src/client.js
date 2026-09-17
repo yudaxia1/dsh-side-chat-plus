@@ -37,15 +37,23 @@ const CSS = `
 @keyframes dsh-sc-blink{to{visibility:hidden}}
 .dsh-sc-composer{flex:none;padding:0 12px 8px}
 .dsh-sc-card{box-sizing:border-box;position:relative;display:flex;flex-direction:column;gap:12px;width:100%;padding-top:8px;border:0;--dsw-elevation-stroke-color:var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-soft)}
-.dsh-sc-input{box-sizing:border-box;width:100%;min-height:48px;max-height:180px;padding:0 14px;border:0;background:transparent;color:inherit;font:inherit;font-size:inherit;line-height:inherit;resize:none;outline:none}
+.dsh-sc-input{box-sizing:border-box;display:block;width:100%;min-height:24px;max-height:168px;padding:0 14px;border:0;background:transparent;color:inherit;font:inherit;font-size:inherit;line-height:inherit;resize:none;outline:none}
 .dsh-sc-input::placeholder{color:var(--dsw-alias-label-tertiary)}
 .dsh-sc-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:2px 8px 6px}
 .dsh-sc-trailing{display:flex;align-items:center;gap:12px;flex:none;margin-left:auto}
-.dsh-sc-select{max-width:170px;height:28px;flex:none;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
-.dsh-sc-select:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-rowgroup{display:flex;align-items:center;gap:6px;min-width:0}
+.dsh-sc-add{display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary);cursor:pointer}
+.dsh-sc-add:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}
+.dsh-sc-add:disabled{opacity:.5;cursor:default}
+.dsh-sc-modelchip{position:relative;display:inline-flex;align-items:center;min-width:0;max-width:180px}
+.dsh-sc-modelchip select{appearance:none;-webkit-appearance:none;max-width:100%;height:28px;padding:0 24px 0 10px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;text-overflow:ellipsis;cursor:pointer}
+.dsh-sc-modelchip select:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-modelchip>svg{position:absolute;right:6px;color:var(--dsw-alias-label-tertiary);pointer-events:none}
 .dsh-sc-send{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted);cursor:pointer}
 .dsh-sc-send:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
 .dsh-sc-send:disabled{background:var(--dsw-alias-button-primary-dimmed);color:var(--dsw-alias-label-secondary);cursor:default}
+.dsh-sc-send-stop{background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary)}
+.dsh-sc-send-stop:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}
 .dsh-sc-icon-button{display:grid;place-items:center;width:28px;height:28px;flex:none;padding:0;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .dsh-sc-icon-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-sc-icon-button:disabled{opacity:.5;cursor:default}
@@ -388,6 +396,24 @@ function IconLock() {
   )
 }
 
+function IconPlus() {
+  return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': 'true' },
+    h('path', { d: 'M8 3.5v9M3.5 8h9' }),
+  )
+}
+
+function IconChevronDown() {
+  return h('svg', { viewBox: '0 0 16 16', width: 12, height: 12, fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+    h('path', { d: 'M4 6l4 4 4-4' }),
+  )
+}
+
+function IconStop() {
+  return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': 'true' },
+    h('rect', { x: 4.5, y: 4.5, width: 7, height: 7, rx: 1.6, fill: 'currentColor' }),
+  )
+}
+
 function IconSend() {
   return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
     h('path', { d: 'M8 13V3.5M4.25 7.25 8 3.5l3.75 3.75' }),
@@ -461,22 +487,24 @@ function ModelPicker({ sessionId }) {
   const current = snapshot?.current
   if (groups.length === 0) return null
   const value = current === null || current === undefined ? '' : `${current.provider}\u0000${current.model}`
-  return h('select', {
-    className: 'dsh-sc-select',
-    value,
-    'aria-label': '旁聊模型',
-    title: '旁聊使用的模型',
-    onChange: event => {
-      const [provider, model] = String(event.target.value).split('\u0000')
-      if (provider === undefined || model === undefined) return
-      void directoryRef.current?.select?.({ provider, model })
+  return h('span', { className: 'dsh-sc-modelchip' },
+    h('select', {
+      value,
+      'aria-label': '旁聊模型',
+      title: '旁聊使用的模型',
+      onChange: event => {
+        const [provider, model] = String(event.target.value).split('\u0000')
+        if (provider === undefined || model === undefined) return
+        void directoryRef.current?.select?.({ provider, model })
+      },
     },
-  },
-  value === '' ? h('option', { value: '' }, '默认模型') : null,
-  ...groups.flatMap(group => (group.models ?? []).map(model => h('option', {
-    key: `${group.id}/${model.id}`,
-    value: `${group.id}\u0000${model.id}`,
-  }, `${group.name} · ${model.name}`))),
+    value === '' ? h('option', { value: '' }, '默认模型') : null,
+    ...groups.flatMap(group => (group.models ?? []).map(model => h('option', {
+      key: `${group.id}/${model.id}`,
+      value: `${group.id}\u0000${model.id}`,
+    }, `${model.name}`))),
+    ),
+    h(IconChevronDown),
   )
 }
 
@@ -540,7 +568,18 @@ function SideChatPanel(props) {
   const [draft, setDraft] = React.useState('')
   const [sending, setSending] = React.useState(false)
   const scrollRef = React.useRef(null)
+  const inputRef = React.useRef(null)
   const onPromoted = React.useCallback(() => { update({ error: '', errorParentId: null }) }, [])
+
+  // The native draft editor grows with its content up to a cap, then scrolls;
+  // mirror that so the card keeps the same rhythm while typing.
+  React.useEffect(() => {
+    const node = inputRef.current
+    if (node === null) return
+    node.style.height = 'auto'
+    node.style.height = `${Math.min(node.scrollHeight, 168)}px`
+    node.style.overflowY = node.scrollHeight > 168 ? 'auto' : 'hidden'
+  }, [draft])
 
   React.useEffect(() => {
     const node = scrollRef.current
@@ -621,34 +660,53 @@ function SideChatPanel(props) {
       h('div', { className: 'dsh-sc-card' },
         h('textarea', {
           className: 'dsh-sc-input',
-          rows: 2,
+          ref: inputRef,
+          rows: 1,
           value: draft,
-          placeholder: '问点什么…… Enter 发送，Shift+Enter 换行',
+          placeholder: '发消息到旁聊，Enter 发送，Shift+Enter 换行',
           'aria-label': '旁聊输入框',
           onChange: event => setDraft(event.target.value),
           onKeyDown: event => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              void send()
-            }
+            // An IME candidate commit must not send: typing Chinese confirms
+            // composition with Enter.
+            if (event.nativeEvent?.isComposing === true || event.isComposing === true) return
+            if (event.key !== 'Enter' || event.shiftKey) return
+            event.preventDefault()
+            void send()
           },
         }),
         h('div', { className: 'dsh-sc-row' },
-          h('span', { className: 'dsh-sc-chip dsh-sc-chip-readonly', title: side?.readOnly === false ? '旁聊拥有完整工具能力' : '旁聊只能读取和搜索文件' },
-            h(side?.readOnly === false ? IconChat : IconLock),
-            side?.readOnly === false ? '可写' : '只读',
-          ),
-          running ? h('button', { type: 'button', className: 'dsh-sc-chip', onClick: () => { void session.cancel?.() } }, '中断') : null,
-          h('span', { className: 'dsh-sc-trailing' },
-            h(ModelPicker, { sessionId: sideId }),
+          h('span', { className: 'dsh-sc-rowgroup' },
             h('button', {
               type: 'button',
-              className: 'dsh-sc-send',
-              title: '发送',
-              'aria-label': '发送旁聊消息',
-              disabled: sending || draft.trim() === '',
-              onClick: () => void send(),
-            }, h(IconSend)),
+              className: 'dsh-sc-add',
+              title: '附件（旁聊面板暂不支持，可在主窗口打开后添加）',
+              'aria-label': '添加附件',
+              disabled: true,
+            }, h(IconPlus)),
+            h('span', { className: 'dsh-sc-chip dsh-sc-chip-readonly', title: side?.readOnly === false ? '旁聊拥有完整工具能力' : '旁聊只能读取和搜索文件' },
+              h(side?.readOnly === false ? IconChat : IconLock),
+              side?.readOnly === false ? '可写' : '只读',
+            ),
+          ),
+          h('span', { className: 'dsh-sc-trailing' },
+            h(ModelPicker, { sessionId: sideId }),
+            running
+              ? h('button', {
+                type: 'button',
+                className: 'dsh-sc-send dsh-sc-send-stop',
+                title: '停止',
+                'aria-label': '停止旁聊生成',
+                onClick: () => { void session.cancel?.() },
+              }, h(IconStop))
+              : h('button', {
+                type: 'button',
+                className: 'dsh-sc-send',
+                title: '发送',
+                'aria-label': '发送旁聊消息',
+                disabled: sending || draft.trim() === '',
+                onClick: () => void send(),
+              }, h(IconSend)),
           ),
         ),
       ),
