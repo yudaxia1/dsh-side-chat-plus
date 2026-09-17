@@ -1029,6 +1029,24 @@ function ParallelConversation(props) {
   )
 }
 
+/**
+ * Adopt the native conversation entry, reporting a moved runtime seam instead
+ * of failing the whole plugin: losing the split shell must not also lose the
+ * header entry that opens it.
+ */
+function adoptNativeConversationSafely(slots, timer) {
+  try {
+    return adoptNativeConversation(slots, timer, {
+      // The Cordis error boundary swallows a plugin throw, so a moved seam is
+      // reported here rather than only as a missing shell.
+      onUnavailable: error => { console.error(error) },
+    })
+  } catch (error) {
+    console.error('[dsh-side-chat] native conversation adoption failed', error)
+    return () => {}
+  }
+}
+
 function adoptNativeConversation(slots, timer, {
   timeoutMs = 15_000,
   onUnavailable = error => console.error(error),
@@ -1038,23 +1056,44 @@ function adoptNativeConversation(slots, timer, {
   // `_core` is the current DSH runtime adapter seam; fail loud only when the seam
   // itself moved. A missing entry is a normal parallel-loader state and is watched.
   const core = slots?._core
-  if (typeof core?.entries !== 'function'
-    || typeof core?.subscribe !== 'function'
-    || typeof core?.register !== 'function'
-    || typeof timer?.setTimeout !== 'function') {
-    throw new Error('dsh-side-chat: native conversation lifecycle API is unavailable')
+  const missing = []
+  if (typeof core?.entries !== 'function') missing.push('slots._core.entries')
+  if (typeof core?.subscribe !== 'function') missing.push('slots._core.subscribe')
+  if (typeof core?.register !== 'function') missing.push('slots._core.register')
+  if (typeof timer?.setTimeout !== 'function') missing.push('timer.setTimeout')
+  if (missing.length > 0) {
+    const detail = JSON.stringify({
+      missing,
+      slots: slots === null || slots === undefined ? String(slots) : Object.keys(slots),
+      core: core === null || core === undefined ? String(core) : Object.keys(core),
+      timer: timer === null || timer === undefined ? String(timer) : Object.keys(timer),
+    })
+    const message = `dsh-side-chat: native conversation lifecycle API is unavailable (missing: ${missing.join(', ')}) ${detail}`
+    console.error(message)
+    throw new Error(message)
   }
-
   let disposed = false
   let watching = true
   let adoptedEntry
   let previousComponent
   let cancelDeadline
 
+  // Slots that have carried the native conversation entry, newest first: DSH
+  // 0.1.6 moved it from `conversation` to `main.conversation`. The seat is a
+  // property of the running build, so both layouts stay served.
+  const conversationSlots = ['main.conversation', 'conversation']
+  const resolveConversationSlot = () => {
+    for (const slot of conversationSlots) {
+      if (core.specDynamic(slot) !== undefined) return slot
+    }
+    return undefined
+  }
+
   const pulse = () => {
     // During layout/HMR teardown the declaration may already have collapsed.
-    if (typeof core.specDynamic === 'function' && core.specDynamic('conversation') === undefined) return
-    const release = core.register({ name: 'conversation', priority: -100 }, () => null)
+    const slot = resolveConversationSlot()
+    if (slot === undefined) return
+    const release = core.register({ name: slot, priority: -100 }, () => null)
     release()
   }
   const clearDeadline = () => {
@@ -1098,7 +1137,9 @@ function adoptNativeConversation(slots, timer, {
     if (NativeConversationRoot === previous) NativeConversationRoot = null
   }
   const findNativeEntry = () => {
-    const entries = core.entries('conversation')
+    const slot = resolveConversationSlot()
+    if (slot === undefined) return undefined
+    const entries = core.entries(slot)
     return Array.isArray(entries)
       ? entries.find(entry => entry?.children?.['conversation.session'] !== undefined
         && entry?.children?.['conversation.composer.bar'] !== undefined)
@@ -1125,7 +1166,10 @@ function adoptNativeConversation(slots, timer, {
     pulse()
   }
 
-  unsubscribe = core.subscribe('conversation', reconcile)
+  // Both seats stay subscribed: the entry's slot is a layout fact of the
+  // running build, not of this plugin, and a remount must still reconcile.
+  const unsubscribers = conversationSlots.map(slot => core.subscribe(slot, reconcile))
+  unsubscribe = () => { for (const off of unsubscribers) off() }
   reconcile()
   return () => {
     if (disposed) return
@@ -1145,7 +1189,7 @@ return {
     const releasePromptProjection = installSidePromptProjection(conversationService)
     styles.insert(CSS)
 
-    const releaseConversation = adoptNativeConversation(slots, timer)
+    const releaseConversation = adoptNativeConversationSafely(slots, timer)
 
     slots.inject('conversation.chat.assistant-actions', () => slots.register({
       name: 'conversation.chat.assistant-actions',

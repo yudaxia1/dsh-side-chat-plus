@@ -63,13 +63,36 @@ return {
     // Pin the sandbox/approval knobs through the same durable session events the
     // native /permission flow uses; the session projection folds the last switch,
     // so re-asserting on every open (create or resume) honors the latest toggle.
+    // A host whose Session lacks either event reports it instead of silently
+    // running the side chat with the deployment's default permission.
     function pinReadOnly(session, readOnly) {
+      const appended = []
+      const errors = []
+      const attempts = [
+        ['sandbox/mode', { mode: readOnly ? 'read-only' : 'workspace-write' }],
+        ['approval/policy', { policy: readOnly ? 'never' : 'ask' }],
+      ]
+      for (const [type, payload] of attempts) {
+        try {
+          session.append(type, payload)
+          appended.push(type)
+        } catch (error) {
+          errors.push(`${type}: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+      return { readOnly, appended, errors }
+    }
+
+    // Read the pinned knobs back off the log so a caller can verify the pin
+    // without decompressing the session artifact.
+    function readPinState(session) {
       try {
-        session.append('sandbox/mode', { mode: readOnly ? 'read-only' : 'workspace-write' })
-        session.append('approval/policy', { policy: readOnly ? 'never' : 'ask' })
+        const events = typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : []
+        const modes = events.filter(event => event?.type === 'sandbox/mode').map(event => event?.data?.mode)
+        const policies = events.filter(event => event?.type === 'approval/policy').map(event => event?.data?.policy)
+        return { eventCount: events.length, sandboxMode: modes.at(-1) ?? null, approvalPolicy: policies.at(-1) ?? null }
       } catch (error) {
-        // Older hosts without these events degrade to the deployment defaults.
-        void error
+        return { error: error instanceof Error ? error.message : String(error) }
       }
     }
 
@@ -178,13 +201,16 @@ return {
       const request = normalizeOpenRequest(input)
       const result = await createOrResume(request.parentSessionId, request.preset, request.readOnly)
       const child = result.handle.agent
-      pinReadOnly(child.session, request.readOnly)
+      const pin = pinReadOnly(child.session, request.readOnly)
       await requireService(workspaceRegistry, 'workspaceRegistry').archiveSession(child.id)
       return {
         sessionId: child.id,
         parentSessionId: request.parentSessionId,
         resumed: result.resumed,
         anchorText: request.anchorText,
+        readOnly: request.readOnly,
+        pin,
+        effective: readPinState(child.session),
       }
     }
 

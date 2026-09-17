@@ -41,32 +41,39 @@ function createEntry(component = function NativeConversation() {}) {
 
 function createSlots(initialEntries = []) {
   let entries = initialEntries
-  const listeners = new Set()
+  // One listener set per slot record, as the real SlotCore keeps them.
+  const listenersBySeat = new Map()
   let pulseCount = 0
+  // Both seats are declared, as in a build where the native entry has moved.
+  const seats = ['main.conversation', 'conversation']
+  const isSeat = key => seats.includes(key)
   const core = {
-    entries: key => key === 'conversation' ? entries : [],
+    entries: key => isSeat(key) ? entries : [],
     subscribe: (key, listener) => {
-      assert.equal(key, 'conversation')
-      listeners.add(listener)
-      return () => listeners.delete(listener)
+      assert.ok(isSeat(key), `unexpected subscription ${key}`)
+      const set = listenersBySeat.get(key) ?? new Set()
+      set.add(listener)
+      listenersBySeat.set(key, set)
+      return () => set.delete(listener)
     },
-    specDynamic: key => key === 'conversation' ? { kind: 'single', scope: 'session-maybe' } : undefined,
+    specDynamic: key => isSeat(key) ? { kind: 'single', scope: 'session-maybe' } : undefined,
     register: (options) => {
-      assert.deepEqual(options, { name: 'conversation', priority: -100 })
+      assert.deepEqual(Object.keys(options).sort(), ['name', 'priority'])
+      assert.ok(isSeat(options.name), `unexpected seat ${options.name}`)
       pulseCount += 1
       return () => { pulseCount += 1 }
     },
   }
   return {
     slots: { _core: core },
-    listenerCount: () => listeners.size,
+    listenerCount: () => [...listenersBySeat.values()].reduce((total, set) => total + set.size, 0),
     pulseCount: () => pulseCount,
     setEntries(next) {
       entries = next
-      for (const listener of [...listeners]) listener()
+      for (const set of listenersBySeat.values()) for (const listener of [...set]) listener()
     },
     notify() {
-      for (const listener of [...listeners]) listener()
+      for (const set of listenersBySeat.values()) for (const listener of [...set]) listener()
     },
   }
 }
@@ -139,7 +146,7 @@ test('waits when Side Chat starts first and follows native conversation remounts
     timeoutMs: 321,
     onUnavailable: error => unavailable.push(error),
   })
-  assert.equal(slots.listenerCount(), 1)
+  assert.equal(slots.listenerCount(), 2, 'both conversation seats stay watched')
   assert.deepEqual(timer.delays, [321])
 
   const first = createEntry()
@@ -211,4 +218,12 @@ test('a permanently unavailable target times out without failing plugin startup'
   slots.setEntries([late])
   assert.deepEqual(late.writes, [])
   release?.()
+})
+
+test('adoption targets every seat the native conversation entry has occupied', async () => {
+  const client = (await readFile(new URL('../src/client.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n')
+  // DSH 0.1.6 declares the native ConversationRoot entry under
+  // `main.conversation`; older builds used `conversation`. Looking only at the
+  // old seat leaves the split shell permanently unadopted.
+  assert.match(client, /'main\.conversation', 'conversation'/)
 })

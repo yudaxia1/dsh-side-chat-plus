@@ -5,10 +5,14 @@ import test from 'node:test'
 const client = await readFile(new URL('../src/client.js', import.meta.url), 'utf8')
 
 test('client adopts the one native conversation declaration and reuses its inner slots', () => {
-  assert.match(client, /core\.entries\('conversation'\)/)
-  assert.match(client, /core\.subscribe\('conversation', reconcile\)/)
+  // The native entry's seat moved to `main.conversation` in DSH 0.1.6, so the
+  // plugin resolves it instead of naming one seat.
+  assert.match(client, /const conversationSlots = \['main\.conversation', 'conversation'\]/)
+  assert.match(client, /const slot = resolveConversationSlot\(\)/)
+  assert.match(client, /core\.entries\(slot\)/)
+  assert.match(client, /unsubscribers = conversationSlots\.map\(slot => core\.subscribe\(slot, reconcile\)\)/)
   assert.match(client, /nativeEntry\.component = ParallelConversation/)
-  assert.match(client, /name: 'conversation', priority: -100/)
+  assert.match(client, /core\.register\(\{ name: slot, priority: -100 \}, \(\) => null\)/)
   for (const slot of ['conversation.session', 'conversation.composer.bar']) {
     assert.match(client, new RegExp(slot.replaceAll('.', '\\.')))
   }
