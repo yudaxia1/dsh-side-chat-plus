@@ -4,51 +4,35 @@ import test from 'node:test'
 
 const client = await readFile(new URL('../src/client.js', import.meta.url), 'utf8')
 
-test('the panel is an official right-Sidebar tab, not a private-seam split shell', () => {
-  // DSH 0.1.6 binds one Session in the renderer tree; rendering a second
-  // Session's native conversation needs seams the platform does not expose.
-  // The plugin therefore owns its transcript inside a supported tab seat.
+test('the panel binds the shipped conversation to the side Session through the public seam', () => {
+  // DSH 0.1.6-alpha.2 added the explicit-binding path: SessionProvider takes a
+  // `session` reference and the conversation content is a factory slot.
+  assert.match(client, /sessionsService\?\.retain\?\.\(sideId, \{ source: 'sideChatPanel' \}\)/)
+  assert.match(client, /h\(SessionProvider, \{ session: reference \}, renderSlot\(CONVERSATION_SLOT, \{\}\)\)/)
+  assert.match(client, /renderFactorySlot\('conversation\.content', \{ variant: 'embedded', phase, hero \}/)
+  assert.match(client, /children: \{ \[CONVERSATION_SLOT\]: \{ kind: 'single', scope: 'session' \} \}/)
+  assert.match(client, /slots\.inject\(CONVERSATION_SLOT/)
+  assert.match(client, /renderSlot\('conversation\.session', \{ view: 'chat' \}\)/)
+})
+
+test('the tab rides the right-Sidebar registry with page semantics', () => {
+  assert.match(client, /tabs\?\.register\?\.\(\{/)
   assert.match(client, /slots\.inject\('sidebar\.right\.pane\.tab'/)
   assert.match(client, /slots\.inject\('sidebar\.right\.pane\.tab\.title'/)
-  assert.match(client, /tabs\?\.register\?\.\(\{/)
-  assert.match(client, /kind: TAB_KIND/)
   assert.match(client, /sidebarRight\?\.openTab\?\.\(TAB_KIND\)/)
-  // The abandoned mechanisms must not come back.
+  // No private seam and no hand-drawn transcript.
   assert.doesNotMatch(client, /slots\._core/)
   assert.doesNotMatch(client, /provideInfo/)
-  assert.doesNotMatch(client, /ParallelConversation/)
-  assert.doesNotMatch(client, /SessionProvider/)
-  assert.doesNotMatch(client, /dsh-sc-resizer/)
-  assert.doesNotMatch(client, /conversation\.session\.header\.utilities/)
+  assert.doesNotMatch(client, /dsh-sc-composer|dsh-sc-bubble|dsh-sc-scroll/)
 })
 
-test('the panel draws the side transcript from the public Session object layer', () => {
-  assert.match(client, /sessionsService\?\.binding\?\.\(sideId\)/)
-  assert.match(client, /binding\?\.eventSource/)
-  assert.match(client, /session\.open\(\)/)
-  assert.match(client, /function projectSideMessages\(entries\)/)
-  assert.match(client, /type === 'user\/message'/)
-  assert.match(client, /type === 'assistant\/message'/)
-  assert.match(client, /type === 'tool\/result'/)
-  assert.match(client, /type === 'assistant\/live-chunk'/)
-  assert.match(client, /chunk\?\.type === 'text-delta'/)
-  assert.match(client, /function argumentHint\(args\)/)
-})
-
-test('sending uses the native prompt path with a local submission echo', () => {
-  assert.match(client, /session\.beginSubmission\?\.\(\{ mode: 'queue', text, attachments: \[\] \}\)/)
-  assert.match(client, /session\.prompt\(\[\{ type: 'text', text \}\], 'queue', undefined, handle\?\.requestId\)/)
-  assert.match(client, /handle\?\.abandon\?\.\(\)/)
-  assert.match(client, /void session\.cancel\?\.\(\)/)
-})
-
-test('promotion writes the answer into the main composer draft', () => {
-  assert.match(client, /function promoteToMain\(parentId, text\)/)
+test('promotion lives in the native assistant action row and writes the main draft', () => {
+  assert.match(client, /slots\.inject\('conversation\.chat\.assistant-actions'/)
+  assert.match(client, /function PromoteToMainAction\(\{ sessionId, messageId \}\)/)
+  assert.match(client, /findSideOwner\(state, sessionId\)/)
   assert.match(client, /conversationService\?\.input\?\.for\?\.\(scope\)/)
-  assert.match(client, /if \(input === undefined \|\| typeof input\.setDraft !== 'function'\) return false/)
   assert.match(client, /input\.setDraft\(quoteBlock\(body\)\)/)
   assert.match(client, /\*\*来自旁聊：\*\*/)
-  assert.match(client, /'aria-label': '带到主会话'/)
 })
 
 test('lifecycle offers keep-or-delete with a remembered choice', () => {
@@ -56,7 +40,6 @@ test('lifecycle offers keep-or-delete with a remembered choice', () => {
   assert.match(client, /保留对话/)
   assert.match(client, /记住此选择/)
   assert.match(client, /function requestClose\(parentId, sideId\)/)
-  assert.match(client, /uiState\.closeBehavior === 'ask'/)
   assert.match(client, /rpc\('sideChat\.close', \{ sessionId: sideId, mode \}\)/)
 })
 
@@ -76,9 +59,7 @@ test('settings expose enablement, read-only default and native preset choices', 
 test('side sessions stay scoped to their owning main session', () => {
   assert.match(client, /sides: new Map\(\)/)
   assert.match(client, /sides\.set\(parentId, Object\.freeze\(side\)\)/)
-  assert.match(client, /const side = activeId === undefined \? undefined : state\.sides\.get\(activeId\)/)
   assert.match(client, /function openSide\(parentId\)/)
   assert.match(client, /const existing = uiState\.sides\.get\(parentId\)/)
-  assert.match(client, /archiveIfPresent\(existing\.sideId\)/)
   assert.match(client, /readOnly: uiState\.readOnly/)
 })

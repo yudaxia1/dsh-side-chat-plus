@@ -352,7 +352,16 @@ function normalizeContextRequest(input) {
       const result = await createOrResume(request.parentSessionId, request.preset, request.readOnly)
       const child = result.handle.agent
       const pin = pinReadOnly(child.session, request.readOnly)
-      await requireService(workspaceRegistry, 'workspaceRegistry').archiveSession(child.id)
+      const registry = requireService(workspaceRegistry, 'workspaceRegistry')
+      // The embedded conversation refuses a workspace-less session with its
+      // picker, so the side Session joins the parent's workspace.
+      const parentWorkspace = typeof registry.list === 'function'
+        ? registry.list().find(workspace => workspace.sessionIds?.includes(request.parentSessionId))
+        : undefined
+      if (parentWorkspace !== undefined && !parentWorkspace.sessionIds.includes(child.id)) {
+        await parentWorkspace.attachSession(child.id)
+      }
+      await registry.archiveSession(child.id)
       return {
         sessionId: child.id,
         parentSessionId: request.parentSessionId,

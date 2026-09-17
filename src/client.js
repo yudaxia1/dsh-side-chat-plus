@@ -1,62 +1,21 @@
 // dsh-side-chat client: a right-Sidebar tab hosting an independent, archived
 // side Session beside the main conversation.
 //
-// The panel draws its own transcript over the public Session object layer
-// (sessions.binding(id).session + eventSource). DSH 0.1.6 binds exactly one
-// Session in the renderer tree, so the native conversation component cannot be
-// rendered for a second Session; every Session capability (agent, tools,
-// sandbox, prompts, streaming) stays native.
+// DSH 0.1.6-alpha.2 ships the seam for this: `SessionProvider` accepts a
+// `session` reference (`sessions.retain(id, { source })`) and rebinds its
+// subtree to that Session, so the tab renders the shipped conversation —
+// transcript, composer, model picker — for the side Session natively.
 
 const CSS = `
-/* Visual vocabulary copied from the native conversation surface:
-   InputBar.module.css owns the composer card (22px radius, the input-major
-   surface, the soft elevation), the native transcript owns the type scale. */
-.dsh-sc-panel{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsh-content-font-size,14px);line-height:calc(24px + var(--dsh-content-font-delta,0px))}
+.dsh-sc-panel{display:flex;flex-direction:column;height:100%;min-height:0;min-width:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsh-content-font-size,14px)}
+.dsh-sc-panel-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
 .dsh-sc-head{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;min-width:0}
 .dsh-sc-head-title{overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .dsh-sc-spacer{flex:1 1 auto}
-.dsh-sc-chip{display:inline-flex;align-items:center;gap:5px;height:28px;flex:none;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
-.dsh-sc-chip:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-sc-chip:disabled{opacity:.5;cursor:default}
-.dsh-sc-chip-readonly{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:default}
-.dsh-sc-chip-readonly:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
-.dsh-sc-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 14px 12px;display:flex;flex-direction:column;gap:14px}
-.dsh-sc-empty{margin:auto;max-width:270px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.75}
-.dsh-sc-msg{display:flex;flex-direction:column;gap:8px;max-width:100%}
-.dsh-sc-msg-user{align-items:flex-end}
-.dsh-sc-bubble{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
-.dsh-sc-msg-assistant .dsh-sc-bubble{color:var(--dsw-alias-label-primary)}
-.dsh-sc-msg-user .dsh-sc-bubble{max-width:86%;padding:8px 13px;border-radius:16px;background:var(--dsw-alias-bg-layer-2)}
-.dsh-sc-msg-actions{display:flex;gap:2px;opacity:.5;transition:opacity .12s}
-.dsh-sc-msg:hover .dsh-sc-msg-actions,.dsh-sc-msg:focus-within .dsh-sc-msg-actions{opacity:1}
-.dsh-sc-tool{display:flex;align-items:baseline;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:calc(20px + var(--dsh-content-font-delta,0px));overflow-wrap:anywhere}
-.dsh-sc-tool-name{color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap}
-.dsh-sc-tool-error{color:var(--dsw-alias-state-error-primary)}
-.dsh-sc-tool-error .dsh-sc-tool-name{color:var(--dsw-alias-state-error-primary)}
-.dsh-sc-caret{display:inline-block;width:2px;height:1em;margin-left:2px;background:currentColor;vertical-align:-2px;animation:dsh-sc-blink 1s steps(2,start) infinite}
-@keyframes dsh-sc-blink{to{visibility:hidden}}
-.dsh-sc-composer{flex:none;padding:0 12px 8px}
-.dsh-sc-card{box-sizing:border-box;position:relative;display:flex;flex-direction:column;gap:12px;width:100%;padding-top:8px;border:0;--dsw-elevation-stroke-color:var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-soft)}
-.dsh-sc-input{box-sizing:border-box;display:block;width:100%;min-height:24px;max-height:168px;padding:0 14px;border:0;background:transparent;color:inherit;font:inherit;font-size:inherit;line-height:inherit;resize:none;outline:none}
-.dsh-sc-input::placeholder{color:var(--dsw-alias-label-tertiary)}
-.dsh-sc-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:2px 8px 6px}
-.dsh-sc-trailing{display:flex;align-items:center;gap:12px;flex:none;margin-left:auto}
-.dsh-sc-rowgroup{display:flex;align-items:center;gap:6px;min-width:0}
-.dsh-sc-add{display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:999px;background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary);cursor:pointer}
-.dsh-sc-add:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}
-.dsh-sc-add:disabled{opacity:.5;cursor:default}
-.dsh-sc-modelchip{position:relative;display:inline-flex;align-items:center;min-width:0;max-width:180px}
-.dsh-sc-modelchip select{appearance:none;-webkit-appearance:none;max-width:100%;height:28px;padding:0 24px 0 10px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;text-overflow:ellipsis;cursor:pointer}
-.dsh-sc-modelchip select:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dsh-sc-modelchip>svg{position:absolute;right:6px;color:var(--dsw-alias-label-tertiary);pointer-events:none}
-.dsh-sc-send{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted);cursor:pointer}
-.dsh-sc-send:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
-.dsh-sc-send:disabled{background:var(--dsw-alias-button-primary-dimmed);color:var(--dsw-alias-label-secondary);cursor:default}
-.dsh-sc-send-stop{background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary)}
-.dsh-sc-send-stop:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}
 .dsh-sc-icon-button{display:grid;place-items:center;width:28px;height:28px;flex:none;padding:0;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .dsh-sc-icon-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dsh-sc-icon-button:disabled{opacity:.5;cursor:default}
+.dsh-sc-empty{margin:auto;max-width:270px;padding:16px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.75}
 .dsh-sc-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
 .dsh-sc-action:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-sc-action:disabled{opacity:.5;cursor:default}
@@ -80,6 +39,8 @@ const CSS = `
 const PREFERENCE_KEY = 'dsh-side-chat.preferences.v1'
 const TAB_ID = 'side-chat'
 const TAB_KIND = 'side-chat'
+/** Keyed child slot declared by the tab body; the native conversation lives in it. */
+const CONVERSATION_SLOT = 'sidechat.conversation'
 const PRESET_OPTIONS = Object.freeze([
   { id: 'standard', label: '标准模式' },
   { id: 'ptc', label: 'PTC 模式' },
@@ -119,7 +80,6 @@ let uiState = initialState
 const subscribers = new Set()
 let sessionsService = null
 let conversationService = null
-let modelDirectories = null
 let sidebarRight = null
 let uiWorkspace = null
 let workspaces = null
@@ -139,6 +99,13 @@ function dropSide(parentId) {
   const sides = new Map(uiState.sides)
   sides.delete(parentId)
   update({ sides, dialog: null })
+}
+
+function findSideOwner(state, sideId) {
+  for (const [parentId, side] of state.sides) {
+    if (side.sideId === sideId) return { parentId, side }
+  }
+  return undefined
 }
 
 function updatePreferences(patch) {
@@ -184,7 +151,6 @@ async function openSide(parentId) {
   const existing = uiState.sides.get(parentId)
   if (existing !== undefined) {
     update({ error: '', errorParentId: null })
-    // Back on the panel: the side Session returns to the hidden pool.
     archiveIfPresent(existing.sideId)
     focusSideTab()
     return
@@ -215,9 +181,8 @@ function focusSideTab() {
 
 /**
  * Select the side Session in the main area, where the shipped conversation
- * renders it: the native transcript, composer, model and permission controls.
- * A workspace session must not be archived to be selected there, so this
- * un-archives first and the panel re-archives on the way back.
+ * renders it. A workspace Session must not be archived to be selected there,
+ * so this un-archives first; the panel re-archives on the way back.
  */
 async function openInMainArea(sideId) {
   try {
@@ -252,7 +217,7 @@ function requestClose(parentId, sideId) {
   else void closeSide(parentId, sideId, uiState.closeBehavior)
 }
 
-/* ---------------------------------------------------------------- projection */
+/* ---------------------------------------------------------------- promotion */
 
 function textOfBlocks(blocks) {
   if (!Array.isArray(blocks)) return ''
@@ -263,77 +228,20 @@ function textOfBlocks(blocks) {
     .trim()
 }
 
-function toolCallsOfBlocks(blocks) {
-  if (!Array.isArray(blocks)) return []
-  return blocks
-    .filter(block => block?.type === 'tool-call')
-    .map(block => ({ id: String(block.id ?? ''), name: String(block.name ?? 'tool'), args: String(block.arguments ?? '') }))
-}
-
-function argumentHint(args) {
-  const trimmed = String(args ?? '').trim()
-  if (trimmed === '' || trimmed === '{}') return ''
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (parsed !== null && typeof parsed === 'object') {
-      const parts = []
-      for (const key of ['file_path', 'path', 'pattern', 'query', 'command', 'url']) {
-        if (typeof parsed[key] === 'string') parts.push(parsed[key])
-      }
-      if (parts.length > 0) return parts.join(' · ').slice(0, 120)
-      const first = Object.values(parsed).find(value => typeof value === 'string')
-      if (typeof first === 'string') return first.slice(0, 120)
-    }
-  } catch (_error) {
-    // Not JSON: fall through to the raw excerpt.
+/** Read one finalized assistant answer from a Session's event window. */
+function findAssistantMessageText(sessionId, messageId) {
+  const entries = sessionsService?.binding?.(sessionId)?.eventSource?.getSnapshot?.()?.entries
+  if (!Array.isArray(entries)) return ''
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const event = entries[i]?.event ?? entries[i]
+    if (event?.type !== 'assistant/message') continue
+    const message = event.data?.message ?? event.data
+    const id = message?.id ?? event.messageId ?? event.id
+    if (id !== messageId) continue
+    return textOfBlocks(message?.content)
   }
-  return trimmed.slice(0, 120)
+  return ''
 }
-
-/** Fold the side Session's event window into render rows. */
-function projectSideMessages(entries) {
-  const rows = []
-  let streaming = ''
-  for (const entry of entries) {
-    const event = entry?.event ?? entry
-    const type = event?.type
-    if (type === 'user/message') {
-      const message = event.data?.message ?? event.data
-      const text = textOfBlocks(message?.content)
-      if (text !== '') rows.push({ kind: 'user', id: String(message?.id ?? `u${event.seq}`), text })
-      continue
-    }
-    if (type === 'assistant/message') {
-      const message = event.data?.message
-      const text = textOfBlocks(message?.content)
-      const tools = toolCallsOfBlocks(message?.content)
-      if (text !== '' || tools.length > 0) {
-        rows.push({ kind: 'assistant', id: String(message?.id ?? `a${event.seq}`), text, tools })
-      }
-      streaming = ''
-      continue
-    }
-    if (type === 'tool/result') {
-      const block = event.data?.message?.content?.[0]
-      rows.push({
-        kind: 'tool-result',
-        id: `r${event.seq}`,
-        isError: block?.isError === true || event.data?.error !== undefined,
-        text: textOfBlocks(block?.content).slice(0, 400),
-      })
-      continue
-    }
-    if (type === 'assistant/live-chunk') {
-      const chunk = event.data?.chunk
-      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') streaming += chunk.text
-      continue
-    }
-  }
-  if (streaming.trim() !== '') rows.push({ kind: 'assistant', id: 'streaming', text: streaming, tools: [], streaming: true })
-  return rows
-}
-
-/* ---------------------------------------------------------------- promotion */
 
 function quoteBlock(text) {
   return ['**来自旁聊：**', '', ...String(text).split('\n').map(line => `> ${line}`)].join('\n')
@@ -355,6 +263,27 @@ function promoteToMain(parentId, text) {
   }
 }
 
+/** The promote entry inside the native transcript's assistant action row. */
+function PromoteToMainAction({ sessionId, messageId }) {
+  const state = useSideState()
+  const owner = findSideOwner(state, sessionId)
+  if (owner === undefined) return null
+  const [promoted, setPromoted] = React.useState(false)
+  return h('button', {
+    type: 'button',
+    className: 'dsh-sc-icon-button',
+    title: promoted ? '已带到主会话' : '带到主会话',
+    'aria-label': '带到主会话',
+    onClick: () => {
+      const text = findAssistantMessageText(sessionId, messageId)
+      if (promoteToMain(owner.parentId, text)) {
+        setPromoted(true)
+        setTimeout(() => setPromoted(false), 1600)
+      }
+    },
+  }, h(IconArrowUpRight))
+}
+
 /* ------------------------------------------------------------------- pieces */
 
 function IconArrowUpRight() {
@@ -364,10 +293,9 @@ function IconArrowUpRight() {
   )
 }
 
-function IconPanelRight() {
+function IconExpand() {
   return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
-    h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2 }),
-    h('path', { d: 'M10 2.5v11' }),
+    h('path', { d: 'M6.5 3.5H3.5v3M9.5 12.5h3v-3M13 6.5v-3h-3M3 9.5v3h2.5' }),
   )
 }
 
@@ -383,40 +311,10 @@ function IconChat() {
   )
 }
 
-function IconExpand() {
+function IconPanelRight() {
   return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
-    h('path', { d: 'M6.5 3.5H3.5v3M9.5 12.5h3v-3M13 6.5v-3h-3M3 9.5v3h2.5' }),
-  )
-}
-
-function IconLock() {
-  return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
-    h('rect', { x: 3.25, y: 7, width: 9.5, height: 6.5, rx: 1.6 }),
-    h('path', { d: 'M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7' }),
-  )
-}
-
-function IconPlus() {
-  return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': 'true' },
-    h('path', { d: 'M8 3.5v9M3.5 8h9' }),
-  )
-}
-
-function IconChevronDown() {
-  return h('svg', { viewBox: '0 0 16 16', width: 12, height: 12, fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
-    h('path', { d: 'M4 6l4 4 4-4' }),
-  )
-}
-
-function IconStop() {
-  return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': 'true' },
-    h('rect', { x: 4.5, y: 4.5, width: 7, height: 7, rx: 1.6, fill: 'currentColor' }),
-  )
-}
-
-function IconSend() {
-  return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
-    h('path', { d: 'M8 13V3.5M4.25 7.25 8 3.5l3.75 3.75' }),
+    h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 2 }),
+    h('path', { d: 'M10 2.5v11' }),
   )
 }
 
@@ -428,83 +326,6 @@ function Toggle({ checked, onChange, label }) {
   return h('label', { className: 'dsh-sc-switch', title: label },
     h('input', { type: 'checkbox', checked, onChange: event => onChange(event.target.checked), 'aria-label': label }),
     h('span', { 'aria-hidden': true }),
-  )
-}
-
-function MessageRow({ row, parentId, onPromoted }) {
-  const [promoted, setPromoted] = React.useState(false)
-  if (row.kind === 'tool-result') {
-    return h('div', { className: `dsh-sc-tool ${row.isError ? 'dsh-sc-tool-error' : ''}` },
-      h('span', { className: 'dsh-sc-tool-name' }, row.isError ? '工具失败' : '工具结果'),
-      h('span', null, row.text === '' ? '(无输出)' : row.text),
-    )
-  }
-  if (row.kind === 'user') {
-    return h('div', { className: 'dsh-sc-msg dsh-sc-msg-user' }, h('div', { className: 'dsh-sc-bubble' }, row.text))
-  }
-  return h('div', { className: 'dsh-sc-msg dsh-sc-msg-assistant' },
-    ...row.tools.map(tool => h('div', { className: 'dsh-sc-tool', key: tool.id },
-      h('span', { className: 'dsh-sc-tool-name' }, tool.name),
-      h('span', null, argumentHint(tool.args)),
-    )),
-    row.text === '' ? null : h('div', { className: 'dsh-sc-bubble' },
-      row.text,
-      row.streaming ? h('span', { className: 'dsh-sc-caret' }) : null,
-    ),
-    row.streaming || row.text === '' ? null : h('div', { className: 'dsh-sc-msg-actions' },
-      h('button', {
-        type: 'button',
-        className: 'dsh-sc-icon-button',
-        title: promoted ? '已带到主会话' : '带到主会话',
-        'aria-label': '带到主会话',
-        onClick: () => {
-          if (promoteToMain(parentId, row.text)) {
-            setPromoted(true)
-            onPromoted?.()
-            setTimeout(() => setPromoted(false), 1600)
-          }
-        },
-      }, h(IconArrowUpRight)),
-    ),
-  )
-}
-
-function ModelPicker({ sessionId }) {
-  const directoryRef = React.useRef(null)
-  const [snapshot, setSnapshot] = React.useState(undefined)
-  React.useEffect(() => {
-    if (sessionId === undefined) return undefined
-    const directory = modelDirectories?.directoryFor?.(sessionId)
-    if (directory === undefined) return undefined
-    directoryRef.current = directory
-    const read = () => setSnapshot(directory.store.getSnapshot())
-    read()
-    void directory.load?.()
-    const off = directory.store.subscribe(read)
-    return () => { off?.(); directoryRef.current = null }
-  }, [sessionId])
-  const groups = snapshot?.groups ?? []
-  const current = snapshot?.current
-  if (groups.length === 0) return null
-  const value = current === null || current === undefined ? '' : `${current.provider}\u0000${current.model}`
-  return h('span', { className: 'dsh-sc-modelchip' },
-    h('select', {
-      value,
-      'aria-label': '旁聊模型',
-      title: '旁聊使用的模型',
-      onChange: event => {
-        const [provider, model] = String(event.target.value).split('\u0000')
-        if (provider === undefined || model === undefined) return
-        void directoryRef.current?.select?.({ provider, model })
-      },
-    },
-    value === '' ? h('option', { value: '' }, '默认模型') : null,
-    ...groups.flatMap(group => (group.models ?? []).map(model => h('option', {
-      key: `${group.id}/${model.id}`,
-      value: `${group.id}\u0000${model.id}`,
-    }, `${model.name}`))),
-    ),
-    h(IconChevronDown),
   )
 }
 
@@ -538,59 +359,61 @@ function CloseDialog() {
   )), document.body)
 }
 
-/** The tab body: transcript, model picker, composer, lifecycle controls. */
-function SideChatPanel(props) {
+/* ------------------------------------------------- native conversation seam */
+
+/** Lock the embedded conversation to the chat view (no trajectory tabs). */
+function FixedChatConversationView(props) {
+  return props.renderSlot('conversation.session', { view: 'chat' })
+}
+
+/** Host the shared conversation content for the side Session in our child slot. */
+function SideChatConversationPanel({ sessionId, useSession, useConversation, useSessions, renderFactorySlot }) {
+  const session = useSession(value => value)
+  const conversation = useConversation(value => value)
+  const active = conversation.activeTargets.size > 0
+    || (!session.blank && !session.awaitingFirstTurn)
+    || session.running
+  const shellPhase = active ? 'active' : session.promptAttempted ? 'engaging' : 'blank'
+  const summaryBlank = useSessions(state => state.byId[sessionId]?.blank)
+  const settling = shellPhase === 'blank' && session.openState === 'loading' && summaryBlank !== true
+  const hero = shellPhase === 'blank' && (session.openState === 'open' || summaryBlank === true)
+  const phase = settling ? 'settling' : hero ? 'hero' : 'active'
+  return renderFactorySlot('conversation.content', { variant: 'embedded', phase, hero }, {
+    slots: { views: FixedChatConversationView },
+  })
+}
+
+/** The tab body: retain the side Session and bind the subtree to it. */
+function SideChatTab(props) {
+  const { SessionProvider, renderSlot } = props
   const state = useSideState()
   const activeId = props.sessionId ?? useObservable(sessionsService?.list, list => list.current, undefined)
   const side = activeId === undefined ? undefined : state.sides.get(activeId)
   const sideId = side?.sideId
-  const binding = sideId === undefined ? undefined : sessionsService?.binding?.(sideId)
-  const session = binding?.session
 
-  // Staging is what opens an event window, so open this one explicitly; the
-  // call is idempotent and the window then follows the side Session.
+  // One reference per live side Session; releasing it returns the binding.
+  const [reference, setReference] = React.useState(undefined)
   React.useEffect(() => {
-    if (session === undefined || typeof session.open !== 'function') return undefined
-    let cancelled = false
-    void session.open()?.catch?.(error => {
-      if (!cancelled) console.error('[dsh-side-chat] side session open failed', error)
-    })
-    return () => { cancelled = true }
-  }, [session])
-
-  const revision = useObservable(binding?.eventSource, window => window?.revision, 0)
-  const entries = React.useMemo(
-    () => binding?.eventSource?.getSnapshot?.()?.entries ?? [],
-    [binding, revision],
-  )
-  const rows = React.useMemo(() => projectSideMessages(entries), [entries])
-  const running = useObservable(session, snapshot => snapshot?.running === true, false)
-  const [draft, setDraft] = React.useState('')
-  const [sending, setSending] = React.useState(false)
-  const scrollRef = React.useRef(null)
-  const inputRef = React.useRef(null)
-  const onPromoted = React.useCallback(() => { update({ error: '', errorParentId: null }) }, [])
-
-  // The native draft editor grows with its content up to a cap, then scrolls;
-  // mirror that so the card keeps the same rhythm while typing.
-  React.useEffect(() => {
-    const node = inputRef.current
-    if (node === null) return
-    node.style.height = 'auto'
-    node.style.height = `${Math.min(node.scrollHeight, 168)}px`
-    node.style.overflowY = node.scrollHeight > 168 ? 'auto' : 'hidden'
-  }, [draft])
-
-  React.useEffect(() => {
-    const node = scrollRef.current
-    if (node !== null) node.scrollTop = node.scrollHeight
-  }, [rows.length, rows[rows.length - 1]?.text])
+    if (sideId === undefined) {
+      setReference(undefined)
+      return undefined
+    }
+    let retained
+    try {
+      retained = sessionsService?.retain?.(sideId, { source: 'sideChatPanel' })
+    } catch (error) {
+      console.error('[dsh-side-chat] retain failed', error)
+      retained = undefined
+    }
+    setReference(retained ?? null)
+    return () => { retained?.release?.() }
+  }, [sideId])
 
   if (!state.enabled) {
     return h('div', { className: 'dsh-sc-panel' }, h('div', { className: 'dsh-sc-empty' }, '旁聊已在设置中停用。'))
   }
 
-  if (sideId === undefined || session === undefined) {
+  if (sideId === undefined) {
     return h('div', { className: 'dsh-sc-panel' },
       h('div', { className: 'dsh-sc-empty' },
         h('div', null, '在这个主会话旁边开一个独立的只读会话。'),
@@ -601,45 +424,24 @@ function SideChatPanel(props) {
             onClick: () => { if (activeId !== undefined) void openSide(activeId) },
           }, state.busy ? '正在开启…' : '开启旁聊'),
         ),
-        h('div', { className: 'dsh-sc-hint', style: { marginTop: 10 } },
+        h('div', { style: { marginTop: 10, fontSize: 12, color: 'var(--dsw-alias-label-tertiary)' } },
           state.readOnly ? '只读模式：可以读文件和搜索，不能修改工作区。' : '可写模式：旁聊拥有完整工具能力。'),
       ),
-      state.error === '' ? null : h('div', { style: { padding: 12 } }, h('p', { className: 'dsh-sc-error' }, state.error)),
+      state.error === '' ? null : h('p', { className: 'dsh-sc-error' }, state.error),
       h(CloseDialog, null),
     )
   }
 
-  const send = async () => {
-    const text = draft.trim()
-    if (text === '' || sending) return
-    setSending(true)
-    try {
-      const handle = session.beginSubmission?.({ mode: 'queue', text, attachments: [] })
-      const result = await session.prompt([{ type: 'text', text }], 'queue', undefined, handle?.requestId)
-      if (result?.ok === false) {
-        handle?.abandon?.()
-        update({ error: result.error?.message ?? '发送失败', errorParentId: activeId })
-      } else {
-        setDraft('')
-        update({ error: '', errorParentId: null })
-      }
-    } catch (error) {
-      update({ error: error instanceof Error ? error.message : String(error), errorParentId: activeId })
-    } finally {
-      setSending(false)
-    }
-  }
-
   return h('div', { className: 'dsh-sc-panel' },
     h('div', { className: 'dsh-sc-head' },
-      h('span', { className: 'dsh-sc-head-title' }, '旁聊 · 独立会话，不写入主会话上下文'),
+      h('span', { className: 'dsh-sc-head-title' }, `旁聊 · 独立会话（${side?.readOnly === false ? '可写' : '只读'}）`),
       h('span', { className: 'dsh-sc-spacer' }),
       h('button', {
         type: 'button',
         className: 'dsh-sc-icon-button',
-        title: '在主窗口打开（完整原生界面）',
+        title: '在主窗口打开',
         'aria-label': '在主窗口打开',
-        onClick: () => openInMainArea(sideId),
+        onClick: () => void openInMainArea(sideId),
       }, h(IconExpand)),
       h('button', {
         type: 'button',
@@ -650,66 +452,10 @@ function SideChatPanel(props) {
         onClick: () => requestClose(activeId, sideId),
       }, h(IconClose)),
     ),
-    h('div', { className: 'dsh-sc-scroll', ref: scrollRef },
-      rows.length === 0
-        ? h('div', { className: 'dsh-sc-empty' }, '这是一个独立的只读会话。需要主会话的背景时，它会用 side_chat_context 工具按需检索。')
-        : rows.map(row => h(MessageRow, { key: row.id, row, parentId: activeId, onPromoted })),
-    ),
-    state.error === '' || state.errorParentId !== activeId ? null : h('p', { className: 'dsh-sc-error' }, state.error),
-    h('div', { className: 'dsh-sc-composer' },
-      h('div', { className: 'dsh-sc-card' },
-        h('textarea', {
-          className: 'dsh-sc-input',
-          ref: inputRef,
-          rows: 1,
-          value: draft,
-          placeholder: '发消息到旁聊，Enter 发送，Shift+Enter 换行',
-          'aria-label': '旁聊输入框',
-          onChange: event => setDraft(event.target.value),
-          onKeyDown: event => {
-            // An IME candidate commit must not send: typing Chinese confirms
-            // composition with Enter.
-            if (event.nativeEvent?.isComposing === true || event.isComposing === true) return
-            if (event.key !== 'Enter' || event.shiftKey) return
-            event.preventDefault()
-            void send()
-          },
-        }),
-        h('div', { className: 'dsh-sc-row' },
-          h('span', { className: 'dsh-sc-rowgroup' },
-            h('button', {
-              type: 'button',
-              className: 'dsh-sc-add',
-              title: '附件（旁聊面板暂不支持，可在主窗口打开后添加）',
-              'aria-label': '添加附件',
-              disabled: true,
-            }, h(IconPlus)),
-            h('span', { className: 'dsh-sc-chip dsh-sc-chip-readonly', title: side?.readOnly === false ? '旁聊拥有完整工具能力' : '旁聊只能读取和搜索文件' },
-              h(side?.readOnly === false ? IconChat : IconLock),
-              side?.readOnly === false ? '可写' : '只读',
-            ),
-          ),
-          h('span', { className: 'dsh-sc-trailing' },
-            h(ModelPicker, { sessionId: sideId }),
-            running
-              ? h('button', {
-                type: 'button',
-                className: 'dsh-sc-send dsh-sc-send-stop',
-                title: '停止',
-                'aria-label': '停止旁聊生成',
-                onClick: () => { void session.cancel?.() },
-              }, h(IconStop))
-              : h('button', {
-                type: 'button',
-                className: 'dsh-sc-send',
-                title: '发送',
-                'aria-label': '发送旁聊消息',
-                disabled: sending || draft.trim() === '',
-                onClick: () => void send(),
-              }, h(IconSend)),
-          ),
-        ),
-      ),
+    h('div', { className: 'dsh-sc-panel-body' },
+      reference === undefined || reference === null || SessionProvider === undefined
+        ? h('div', { className: 'dsh-sc-empty' }, '正在连接旁聊会话…')
+        : h(SessionProvider, { session: reference }, renderSlot(CONVERSATION_SLOT, {})),
     ),
     h(CloseDialog, null),
   )
@@ -726,7 +472,7 @@ function HeaderAction({ sessionId }) {
   const side = state.sides.get(sessionId)
   return h('button', {
     type: 'button',
-    className: 'dsh-sc-action dsh-sc-icon-action',
+    className: 'dsh-sc-icon-button',
     'aria-label': side === undefined ? '打开旁聊' : '显示旁聊',
     title: side === undefined ? '打开旁聊' : '显示旁聊',
     disabled: state.busy,
@@ -762,12 +508,11 @@ function SettingsSection() {
 }
 
 return {
-  inject: ['slots', 'timer', 'sessions', 'conversation', 'remote', 'remote.session'],
+  inject: ['slots', 'timer', 'sessions', 'conversation'],
   apply(ctx) {
     const slots = ctx.get('slots')
     sessionsService = ctx.get('sessions')
     conversationService = ctx.get('conversation')
-    modelDirectories = ctx.get('modelDirectories')
     sidebarRight = ctx.get('sidebarRight')
     uiWorkspace = ctx.get('uiWorkspace')
     workspaces = ctx.get('workspaces')
@@ -791,12 +536,24 @@ return {
     ctx.effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
       name: 'sidebar.right.pane.tab',
       key: TAB_ID,
-    }, SideChatPanel)), 'dsh-side-chat: tab body')
+      children: { [CONVERSATION_SLOT]: { kind: 'single', scope: 'session' } },
+    }, SideChatTab)), 'dsh-side-chat: tab body')
 
     ctx.effect(() => slots.inject('sidebar.right.pane.tab.title', () => slots.register({
       name: 'sidebar.right.pane.tab.title',
       key: TAB_ID,
     }, SideChatTitle)), 'dsh-side-chat: tab title')
+
+    // The native conversation body, bound to the side Session.
+    ctx.effect(() => slots.inject(CONVERSATION_SLOT, () => slots.register({
+      name: CONVERSATION_SLOT,
+    }, SideChatConversationPanel)), 'dsh-side-chat: conversation host')
+
+    ctx.effect(() => slots.inject('conversation.chat.assistant-actions', () => slots.register({
+      name: 'conversation.chat.assistant-actions',
+      id: 'side-chat-promote',
+      order: 90,
+    }, PromoteToMainAction)), 'dsh-side-chat: promote entry')
 
     ctx.effect(() => slots.inject('conversation.session.header.actions', () => slots.register({
       name: 'conversation.session.header.actions',
@@ -815,7 +572,6 @@ return {
       subscribers.clear()
       sessionsService = null
       conversationService = null
-      modelDirectories = null
       sidebarRight = null
       uiWorkspace = null
       workspaces = null
