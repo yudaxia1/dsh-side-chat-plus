@@ -8,48 +8,64 @@
 // sandbox, prompts, streaming) stays native.
 
 const CSS = `
-.dsh-sc-panel{display:flex;flex-direction:column;height:100%;min-height:0;color:var(--dsw-alias-label-primary);font:inherit}
-.dsh-sc-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.dsh-sc-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;white-space:nowrap}
-.dsh-sc-badge-readonly{background:var(--dsw-alias-state-business-tertiary);color:var(--dsw-alias-state-business-primary)}
+/* Visual vocabulary copied from the native conversation surface:
+   InputBar.module.css owns the composer card (22px radius, the input-major
+   surface, the soft elevation), the native transcript owns the type scale. */
+.dsh-sc-panel{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsh-content-font-size,14px);line-height:calc(24px + var(--dsh-content-font-delta,0px))}
+.dsh-sc-head{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;min-width:0}
+.dsh-sc-head-title{overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
 .dsh-sc-spacer{flex:1 1 auto}
-.dsh-sc-model{max-width:170px;height:26px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px}
-.dsh-sc-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:12px}
-.dsh-sc-empty{margin:auto;max-width:290px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.7}
-.dsh-sc-msg{display:flex;flex-direction:column;gap:6px;max-width:100%}
+.dsh-sc-chip{display:inline-flex;align-items:center;gap:5px;height:28px;flex:none;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;white-space:nowrap;cursor:pointer}
+.dsh-sc-chip:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-chip:disabled{opacity:.5;cursor:default}
+.dsh-sc-chip-readonly{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:default}
+.dsh-sc-chip-readonly:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
+.dsh-sc-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 14px 12px;display:flex;flex-direction:column;gap:14px}
+.dsh-sc-empty{margin:auto;max-width:270px;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.75}
+.dsh-sc-msg{display:flex;flex-direction:column;gap:8px;max-width:100%}
 .dsh-sc-msg-user{align-items:flex-end}
-.dsh-sc-bubble{max-width:100%;padding:8px 11px;border-radius:10px;background:var(--dsw-alias-bg-layer-2);font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
-.dsh-sc-msg-user .dsh-sc-bubble{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
-.dsh-sc-msg-actions{display:flex;gap:4px;opacity:.55;transition:opacity .12s}
+.dsh-sc-bubble{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+.dsh-sc-msg-assistant .dsh-sc-bubble{color:var(--dsw-alias-label-primary)}
+.dsh-sc-msg-user .dsh-sc-bubble{max-width:86%;padding:8px 13px;border-radius:16px;background:var(--dsw-alias-bg-layer-2)}
+.dsh-sc-msg-actions{display:flex;gap:2px;opacity:.5;transition:opacity .12s}
 .dsh-sc-msg:hover .dsh-sc-msg-actions,.dsh-sc-msg:focus-within .dsh-sc-msg-actions{opacity:1}
-.dsh-sc-tool{display:flex;align-items:baseline;gap:6px;padding:5px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.dsh-sc-tool{display:flex;align-items:baseline;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:calc(20px + var(--dsh-content-font-delta,0px));overflow-wrap:anywhere}
 .dsh-sc-tool-name{color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap}
-.dsh-sc-tool-error{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
-.dsh-sc-caret{display:inline-block;width:6px;height:13px;margin-left:2px;background:var(--dsw-alias-label-secondary);vertical-align:-2px;animation:dsh-sc-blink 1s steps(2,start) infinite}
+.dsh-sc-tool-error{color:var(--dsw-alias-state-error-primary)}
+.dsh-sc-tool-error .dsh-sc-tool-name{color:var(--dsw-alias-state-error-primary)}
+.dsh-sc-caret{display:inline-block;width:2px;height:1em;margin-left:2px;background:currentColor;vertical-align:-2px;animation:dsh-sc-blink 1s steps(2,start) infinite}
 @keyframes dsh-sc-blink{to{visibility:hidden}}
-.dsh-sc-composer{display:flex;flex-direction:column;gap:6px;padding:8px 10px 10px;border-top:1px solid var(--dsw-alias-border-l2)}
-.dsh-sc-input{box-sizing:border-box;width:100%;min-height:62px;max-height:200px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-size:13px;line-height:1.6;resize:vertical}
-.dsh-sc-input:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
-.dsh-sc-composer-row{display:flex;align-items:center;gap:8px}
-.dsh-sc-hint{color:var(--dsw-alias-label-tertiary);font-size:11px}
-.dsh-sc-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:28px;padding:4px 10px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
-.dsh-sc-action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-composer{flex:none;padding:0 12px 8px}
+.dsh-sc-card{box-sizing:border-box;position:relative;display:flex;flex-direction:column;gap:12px;width:100%;padding-top:8px;border:0;--dsw-elevation-stroke-color:var(--dsw-alias-border-l2);border-radius:22px;background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-soft)}
+.dsh-sc-input{box-sizing:border-box;width:100%;min-height:48px;max-height:180px;padding:0 14px;border:0;background:transparent;color:inherit;font:inherit;font-size:inherit;line-height:inherit;resize:none;outline:none}
+.dsh-sc-input::placeholder{color:var(--dsw-alias-label-tertiary)}
+.dsh-sc-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:2px 8px 6px}
+.dsh-sc-trailing{display:flex;align-items:center;gap:12px;flex:none;margin-left:auto}
+.dsh-sc-select{max-width:170px;height:28px;flex:none;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
+.dsh-sc-select:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-send{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted);cursor:pointer}
+.dsh-sc-send:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.dsh-sc-send:disabled{background:var(--dsw-alias-button-primary-dimmed);color:var(--dsw-alias-label-secondary);cursor:default}
+.dsh-sc-icon-button{display:grid;place-items:center;width:28px;height:28px;flex:none;padding:0;border:0;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dsh-sc-icon-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dsh-sc-icon-button:disabled{opacity:.5;cursor:default}
+.dsh-sc-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
+.dsh-sc-action:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .dsh-sc-action:disabled{opacity:.5;cursor:default}
-.dsh-sc-primary{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
-.dsh-sc-primary:hover{background:var(--dsw-alias-button-primary-hover);color:var(--dsw-alias-label-primary-inverted)}
-.dsh-sc-icon-action{width:26px;min-height:26px;padding:0}
-.dsh-sc-error{margin:0;padding:7px 10px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.dsh-sc-primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
+.dsh-sc-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover)}
+.dsh-sc-error{margin:0;padding:6px 12px;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .dsh-sc-modal-backdrop{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.52)}
-.dsh-sc-modal{box-sizing:border-box;width:min(420px,100%);padding:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-base);box-shadow:0 20px 64px rgba(0,0,0,.32)}
+.dsh-sc-modal{box-sizing:border-box;width:min(420px,100%);padding:20px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-elevated);box-shadow:var(--dsw-elevation-soft)}
 .dsh-sc-modal h3{margin:0 0 8px;font-size:16px}.dsh-sc-modal p{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.6}
 .dsh-sc-modal-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:18px}
 .dsh-sc-remember-choice{display:inline-flex;align-items:center;gap:7px;margin-right:auto;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
-.dsh-sc-danger{color:var(--dsw-alias-state-error-primary)}
+.dsh-sc-danger{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 .dsh-sc-settings{width:min(760px,100%);padding:8px 0 40px}
 .dsh-sc-settings-head{padding:0 0 20px}.dsh-sc-settings-head h2{margin:0;font-size:20px;font-weight:600}
 .dsh-sc-settings-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:24px;min-height:72px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .dsh-sc-settings-title{font-size:14px;font-weight:500}.dsh-sc-settings-desc{margin-top:4px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
-.dsh-sc-settings-select{min-width:148px;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
+.dsh-sc-settings-select{min-width:148px;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
 .dsh-sc-switch{position:relative;width:36px;height:20px;flex:none}.dsh-sc-switch input{position:absolute;opacity:0;pointer-events:none}.dsh-sc-switch span{display:block;width:100%;height:100%;border-radius:10px;background:var(--dsw-alias-border-l2);transition:background .15s}.dsh-sc-switch span::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-bg-elevated);box-shadow:0 1px 3px rgba(0,0,0,.22);transition:transform .15s}.dsh-sc-switch input:checked+span{background:var(--dsw-alias-state-business-primary)}.dsh-sc-switch input:checked+span::after{transform:translateX(16px)}
 `
 
@@ -333,6 +349,19 @@ function IconChat() {
   )
 }
 
+function IconLock() {
+  return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+    h('rect', { x: 3.25, y: 7, width: 9.5, height: 6.5, rx: 1.6 }),
+    h('path', { d: 'M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7' }),
+  )
+}
+
+function IconSend() {
+  return h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+    h('path', { d: 'M8 13V3.5M4.25 7.25 8 3.5l3.75 3.75' }),
+  )
+}
+
 function ActionButton({ children, onClick, disabled, className = '', title }) {
   return h('button', { type: 'button', className: `dsh-sc-action ${className}`, onClick, disabled, title }, children)
 }
@@ -355,7 +384,7 @@ function MessageRow({ row, parentId, onPromoted }) {
   if (row.kind === 'user') {
     return h('div', { className: 'dsh-sc-msg dsh-sc-msg-user' }, h('div', { className: 'dsh-sc-bubble' }, row.text))
   }
-  return h('div', { className: 'dsh-sc-msg' },
+  return h('div', { className: 'dsh-sc-msg dsh-sc-msg-assistant' },
     ...row.tools.map(tool => h('div', { className: 'dsh-sc-tool', key: tool.id },
       h('span', { className: 'dsh-sc-tool-name' }, tool.name),
       h('span', null, argumentHint(tool.args)),
@@ -365,8 +394,9 @@ function MessageRow({ row, parentId, onPromoted }) {
       row.streaming ? h('span', { className: 'dsh-sc-caret' }) : null,
     ),
     row.streaming || row.text === '' ? null : h('div', { className: 'dsh-sc-msg-actions' },
-      h(ActionButton, {
-        className: 'dsh-sc-icon-action',
+      h('button', {
+        type: 'button',
+        className: 'dsh-sc-icon-button',
         title: promoted ? '已带到主会话' : '带到主会话',
         'aria-label': '带到主会话',
         onClick: () => {
@@ -400,7 +430,7 @@ function ModelPicker({ sessionId }) {
   if (groups.length === 0) return null
   const value = current === null || current === undefined ? '' : `${current.provider}\u0000${current.model}`
   return h('select', {
-    className: 'dsh-sc-model',
+    className: 'dsh-sc-select',
     value,
     'aria-label': '旁聊模型',
     title: '旁聊使用的模型',
@@ -530,14 +560,12 @@ function SideChatPanel(props) {
   }
 
   return h('div', { className: 'dsh-sc-panel' },
-    h('div', { className: 'dsh-sc-toolbar' },
-      h('span', { className: `dsh-sc-badge ${side?.readOnly === false ? '' : 'dsh-sc-badge-readonly'}` },
-        side?.readOnly === false ? '可写' : '只读',
-      ),
+    h('div', { className: 'dsh-sc-head' },
+      h('span', { className: 'dsh-sc-head-title' }, '旁聊 · 独立会话，不写入主会话上下文'),
       h('span', { className: 'dsh-sc-spacer' }),
-      h(ModelPicker, { sessionId: sideId }),
-      h(ActionButton, {
-        className: 'dsh-sc-icon-action',
+      h('button', {
+        type: 'button',
+        className: 'dsh-sc-icon-button',
         title: '关闭旁聊',
         'aria-label': '关闭旁聊',
         disabled: state.busy,
@@ -549,26 +577,41 @@ function SideChatPanel(props) {
         ? h('div', { className: 'dsh-sc-empty' }, '这是一个独立的只读会话。需要主会话的背景时，它会用 side_chat_context 工具按需检索。')
         : rows.map(row => h(MessageRow, { key: row.id, row, parentId: activeId, onPromoted })),
     ),
-    state.error === '' || state.errorParentId !== activeId ? null : h('div', { style: { padding: '0 10px 8px' } }, h('p', { className: 'dsh-sc-error' }, state.error)),
+    state.error === '' || state.errorParentId !== activeId ? null : h('p', { className: 'dsh-sc-error' }, state.error),
     h('div', { className: 'dsh-sc-composer' },
-      h('textarea', {
-        className: 'dsh-sc-input',
-        value: draft,
-        placeholder: '问点什么…… Enter 发送，Shift+Enter 换行',
-        'aria-label': '旁聊输入框',
-        onChange: event => setDraft(event.target.value),
-        onKeyDown: event => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            void send()
-          }
-        },
-      }),
-      h('div', { className: 'dsh-sc-composer-row' },
-        h(ActionButton, { className: 'dsh-sc-primary', disabled: sending || draft.trim() === '', onClick: () => void send() }, sending ? '发送中…' : '发送'),
-        running ? h(ActionButton, { onClick: () => { void session.cancel?.() } }, '中断') : null,
-        h('span', { className: 'dsh-sc-spacer' }),
-        h('span', { className: 'dsh-sc-hint' }, '旁聊不会进入主会话上下文'),
+      h('div', { className: 'dsh-sc-card' },
+        h('textarea', {
+          className: 'dsh-sc-input',
+          rows: 2,
+          value: draft,
+          placeholder: '问点什么…… Enter 发送，Shift+Enter 换行',
+          'aria-label': '旁聊输入框',
+          onChange: event => setDraft(event.target.value),
+          onKeyDown: event => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              void send()
+            }
+          },
+        }),
+        h('div', { className: 'dsh-sc-row' },
+          h('span', { className: 'dsh-sc-chip dsh-sc-chip-readonly', title: side?.readOnly === false ? '旁聊拥有完整工具能力' : '旁聊只能读取和搜索文件' },
+            h(side?.readOnly === false ? IconChat : IconLock),
+            side?.readOnly === false ? '可写' : '只读',
+          ),
+          running ? h('button', { type: 'button', className: 'dsh-sc-chip', onClick: () => { void session.cancel?.() } }, '中断') : null,
+          h('span', { className: 'dsh-sc-trailing' },
+            h(ModelPicker, { sessionId: sideId }),
+            h('button', {
+              type: 'button',
+              className: 'dsh-sc-send',
+              title: '发送',
+              'aria-label': '发送旁聊消息',
+              disabled: sending || draft.trim() === '',
+              onClick: () => void send(),
+            }, h(IconSend)),
+          ),
+        ),
       ),
     ),
     h(CloseDialog, null),
