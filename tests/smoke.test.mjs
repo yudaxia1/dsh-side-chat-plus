@@ -1,10 +1,10 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import * as formalHost from '../dist/formal-host.mjs'
 
 test('formal host exposes a normal DSH package face', () => {
-  assert.equal(formalHost.name, 'dsh-side-chat')
+  assert.equal(formalHost.name, 'dsh-side-chat-plus')
   assert.equal(typeof formalHost.apply, 'function')
   assert.ok(formalHost.inject.includes('sessionPersistence'))
   assert.ok(formalHost.inject.includes('agentPresets'))

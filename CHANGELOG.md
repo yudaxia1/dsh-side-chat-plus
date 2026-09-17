@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0 (2026-09-17) — dsh-side-chat-plus
+
+Derived from [dsh-side-chat](https://github.com/KarlOfLaw/dsh-side-chat) 1.2.0 and reworked for DeepSeek Harness 0.1.6:
+
+- Render the shipped conversation for the side Session: the panel binds it through `SessionProvider session={sessions.retain(id)}` and the `conversation.content` factory slot (embedded variant) introduced in 0.1.6-alpha.2 — the composer, model picker, Markdown, attachments and tool cards are all stock.
+- Read-only mode is on by default: the Host pins `sandbox/mode=read-only` and `approval/policy=never` on every open and reports the effective knobs in the open response.
+- Promote any side answer into the main composer draft from the native assistant action row.
+- Serve the `/side-chat` channel through a fenced web route (the Connection service's `rpc.handle` cannot register routes for third parties in 0.1.6).
+- Fix the PTC preset id (`ptc`, not `code`) and CRLF-checkouts breaking the build on Windows.
+
 ## 1.2.0 (2026-08-28)
 
 - Keep Side Chat and Better Sidebar mutually exclusive: opening either panel automatically makes room by hiding the other.

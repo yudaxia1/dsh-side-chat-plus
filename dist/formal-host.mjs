@@ -4,7 +4,7 @@
 import { lstat, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 
-export const name = 'dsh-side-chat'
+export const name = 'dsh-side-chat-plus'
 export const inject = ['sessionQuery', 'sessionPersistence', 'sessions', 'agents', 'agentPresets', 'workspaceRegistry', 'connection', 'webServer']
 
 const sideChatHandlers = new Map()

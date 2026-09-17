@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const devRoot = join(root, 'dev')
 const packageName = process.env.DSH_SIDE_CHAT_PACKAGE_ID ?? 'dsh-side-chat-dev'
-if (!/^dsh-side-chat(?:-dev)?$/.test(packageName)) {
+if (!/^dsh-side-chat-plus(?:-dev)?$/.test(packageName)) {
   throw new Error(`unsupported local package id: ${packageName}`)
 }
 const packageRoot = join(devRoot, 'node_modules', packageName)

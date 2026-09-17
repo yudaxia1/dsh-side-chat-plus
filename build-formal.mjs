@@ -1,9 +1,9 @@
-/**
+﻿/**
  * Build the standalone, non-dynamic DSH package from the same source used by
  * the compatibility adapter. The resulting package is installed by DSH's
  * normal local plugin loader and does not require cordis_define payloads.
  */
-process.env.DSH_SIDE_CHAT_PACKAGE_ID = 'dsh-side-chat'
+process.env.DSH_SIDE_CHAT_PACKAGE_ID = 'dsh-side-chat-plus'
 await import('./dev/build-dev.mjs?formal')
 
 import { copyFileSync, mkdirSync } from 'node:fs'
@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(fileURLToPath(import.meta.url))
-const packageRoot = join(root, 'dev', 'node_modules', 'dsh-side-chat')
+const packageRoot = join(root, 'dev', 'node_modules', 'dsh-side-chat-plus')
 const distRoot = join(root, 'dist')
 mkdirSync(distRoot, { recursive: true })
 copyFileSync(join(packageRoot, 'host.mjs'), join(distRoot, 'formal-host.mjs'))
