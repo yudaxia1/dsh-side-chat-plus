@@ -17,6 +17,24 @@ While the main session is running a long task, open the "Side Chat" tab in the r
 
 The side chat's conversation surface is the shipped one — the native composer, Markdown, attachments, `@` references, the model picker, and tool cards are all the stock components.
 
+## How this differs from the official subagent sidebar
+
+Since 0.1.6-alpha.2, dsh can open **subagent sessions** in the right sidebar (PR #4417). The two serve different purposes and can be installed together without conflict:
+
+| | Official (built into alpha.2) | This plugin |
+|---|---|---|
+| Where sessions come from | Subagents the agent spawns itself (the subagent tool) | Opened by the user, for any main session, any time |
+| Purpose | Watching and following subagent execution | Free-form Q&A beside the main conversation (the /btw pattern) |
+| Permissions | Inherits the subagent's own configuration; one-shot subagents are view-only | Read-only by default (sandbox-enforced, approvals off), one toggle to unlock |
+| Back to the main session | ❌ No | ✅ One click promotes an answer into the main composer draft |
+| Main-session context | Whatever the subagent was spawned with | ✅ The side_chat_context tool retrieves it on demand |
+| Lifecycle | Follows the subagent | ✅ User-controlled: keep / delete / resume, with a remembered close preference |
+| Session list | Subagents appear in the left list (grouped) | ✅ Archived and hidden, never clutters the list |
+| Model | Inherits from the subagent | ✅ Independent choice through the native picker |
+| Agent preset | Inherits | ✅ standard / ptc / minimal / cordis |
+
+In one line: the official feature is "watch the agent's delegates"; this plugin is "a second voice for the user".
+
 ## Requirements
 
 - **dsh ≥ 0.1.6-alpha.2** (the panel relies on the explicit-session binding seam introduced in that release)
