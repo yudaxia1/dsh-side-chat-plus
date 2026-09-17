@@ -113,6 +113,8 @@ let sessionsService = null
 let conversationService = null
 let modelDirectories = null
 let sidebarRight = null
+let uiWorkspace = null
+let workspaces = null
 
 function update(patch) {
   uiState = Object.freeze({ ...uiState, ...patch })
@@ -171,8 +173,11 @@ async function rpc(method, input) {
 /** Open (or reveal) the side Session for one main Session and focus its tab. */
 async function openSide(parentId) {
   if (!uiState.enabled || uiState.busy) return
-  if (uiState.sides.has(parentId)) {
+  const existing = uiState.sides.get(parentId)
+  if (existing !== undefined) {
     update({ error: '', errorParentId: null })
+    // Back on the panel: the side Session returns to the hidden pool.
+    archiveIfPresent(existing.sideId)
     focusSideTab()
     return
   }
@@ -198,6 +203,27 @@ function focusSideTab() {
     // No session surface is mounted yet; the tab still shows the panel.
     void error
   }
+}
+
+/**
+ * Select the side Session in the main area, where the shipped conversation
+ * renders it: the native transcript, composer, model and permission controls.
+ * A workspace session must not be archived to be selected there, so this
+ * un-archives first and the panel re-archives on the way back.
+ */
+async function openInMainArea(sideId) {
+  try {
+    await workspaces?.unarchiveSession?.(sideId)
+    uiWorkspace?.openSession?.(sideId)
+  } catch (error) {
+    console.error('[dsh-side-chat] opening the side session in the main area failed', error)
+  }
+}
+
+/** Return the side Session to the hidden pool once the panel is on screen again. */
+function archiveIfPresent(sideId) {
+  if (sideId === undefined) return
+  void workspaces?.archiveSession?.(sideId)?.catch?.(() => {})
 }
 
 async function closeSide(parentId, sideId, mode) {
@@ -346,6 +372,12 @@ function IconClose() {
 function IconChat() {
   return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
     h('path', { d: 'M2 3.5h9a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 11 11.5H6l-3.5 2.5v-2.5H3A1 1 0 0 1 2 10.5v-7Z' }),
+  )
+}
+
+function IconExpand() {
+  return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' },
+    h('path', { d: 'M6.5 3.5H3.5v3M9.5 12.5h3v-3M13 6.5v-3h-3M3 9.5v3h2.5' }),
   )
 }
 
@@ -566,6 +598,13 @@ function SideChatPanel(props) {
       h('button', {
         type: 'button',
         className: 'dsh-sc-icon-button',
+        title: '在主窗口打开（完整原生界面）',
+        'aria-label': '在主窗口打开',
+        onClick: () => openInMainArea(sideId),
+      }, h(IconExpand)),
+      h('button', {
+        type: 'button',
+        className: 'dsh-sc-icon-button',
         title: '关闭旁聊',
         'aria-label': '关闭旁聊',
         disabled: state.busy,
@@ -672,6 +711,8 @@ return {
     conversationService = ctx.get('conversation')
     modelDirectories = ctx.get('modelDirectories')
     sidebarRight = ctx.get('sidebarRight')
+    uiWorkspace = ctx.get('uiWorkspace')
+    workspaces = ctx.get('workspaces')
     const tabs = ctx.get('sidebarRightTabs')
     styles.insert(CSS)
 
@@ -718,6 +759,8 @@ return {
       conversationService = null
       modelDirectories = null
       sidebarRight = null
+      uiWorkspace = null
+      workspaces = null
       uiState = initialState
     }, 'dsh-side-chat: client state')
   },

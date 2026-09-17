@@ -78,6 +78,7 @@ test('side sessions stay scoped to their owning main session', () => {
   assert.match(client, /sides\.set\(parentId, Object\.freeze\(side\)\)/)
   assert.match(client, /const side = activeId === undefined \? undefined : state\.sides\.get\(activeId\)/)
   assert.match(client, /function openSide\(parentId\)/)
-  assert.match(client, /if \(uiState\.sides\.has\(parentId\)\)/)
+  assert.match(client, /const existing = uiState\.sides\.get\(parentId\)/)
+  assert.match(client, /archiveIfPresent\(existing\.sideId\)/)
   assert.match(client, /readOnly: uiState\.readOnly/)
 })
